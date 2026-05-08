@@ -14,24 +14,54 @@ import (
 )
 
 func getConfigPath() string {
-	// 优先使用环境变量（方便调试时覆盖）
-	if envPath := os.Getenv("CONFIG_PATH"); envPath != "" {
-		return envPath
-	}
+    // 1. 环境变量优先
+    if envPath := os.Getenv("CONFIG_PATH"); envPath != "" && fileExists(envPath) {
+        log.Printf("使用环境变量配置: %s", envPath)
+        return envPath
+    }
 
-	// 生产环境：基于可执行文件路径
-	exePath, err := os.Executable()
-	if err == nil {
-		exeDir := filepath.Dir(exePath)
-		configPath := filepath.Join(exeDir, "configs", "config.yaml")
-		if _, err := os.Stat(configPath); err == nil {
-			return configPath
-		}
-	}
+    // 2. 搜索可能的路径
+    searchPaths := []string{
+        // 基于当前工作目录
+        "./configs/config.yaml",
+        "../configs/config.yaml",
+        "../../configs/config.yaml",
+        
+        // 基于可执行文件目录
+        getExecutableRelativePath("configs/config.yaml"),
+        getExecutableRelativePath("../configs/config.yaml"),
+        
+        // 项目的可能位置
+        "./config/config.yaml",
+        "./conf/config.yaml",
+    }
+    
+    for _, path := range searchPaths {
+        if fileExists(path) {
+            log.Printf("找到配置文件: %s", path)
+            return path
+        }
+    }
 
-	// 调试环境：基于当前工作目录
-	workDir, _ := os.Getwd()
-	return filepath.Join(workDir, "configs", "config.yaml")
+    // 3. 返回默认路径
+    defaultPath := "./configs/config.yaml"
+    log.Printf("警告: 未找到配置文件，使用默认路径: %s", defaultPath)
+    return defaultPath
+}
+
+// 辅助函数：检查文件是否存在
+func fileExists(path string) bool {
+    info, err := os.Stat(path)
+    return err == nil && !info.IsDir()
+}
+
+// 辅助函数：获取相对于可执行文件的路径
+func getExecutableRelativePath(relativePath string) string {
+    exePath, err := os.Executable()
+    if err != nil {
+        return ""
+    }
+    return filepath.Join(filepath.Dir(exePath), relativePath)
 }
 
 func main() {

@@ -21,6 +21,19 @@ import (
 	"gorm.io/gorm"
 )
 
+var sanitizeReplacer = strings.NewReplacer(
+	"/", "_",
+	"\\", "_",
+	"<", "_",
+	">", "_",
+	":", "_",
+	"\"", "_",
+	"|", "_",
+	"?", "_",
+	"*", "_",
+	"\x00", "",
+)
+
 type FileService struct {
 	userRepo  *repository.UserRepo
 	fileRepo  *repository.FileRepo
@@ -55,7 +68,7 @@ func (s *FileService) UploadPhyFileAndBindFile(email string, parentID uint64, fi
 	}
 
 	if userInfo.Total_Space > 0 && userInfo.Used_Space+uint64(validResult.FileSize) > userInfo.Total_Space {
-		return nil, Conflict(fmt.Sprintf("空间不足：%s", err))
+		return nil, Conflict(fmt.Sprintf("空间不足：已用%d，总计%d，", userInfo.Used_Space, userInfo.Total_Space))
 	}
 
 	// 验证父文件夹是否存在
@@ -122,7 +135,7 @@ func (s *FileService) UploadPhyFileAndBindFile(email string, parentID uint64, fi
 		// 创建用户文件记录
 		userFile := &model.UserFile{
 			UserID:     userInfo.ID,
-			PhysicalID: hashResult.ID,
+			PhysicalID: &hashResult.ID,
 			ParentID:   parentID,
 			FileName:   respFileName,
 			FileExt:    strings.ToLower(filepath.Ext(respFileName)),
@@ -210,7 +223,7 @@ func (s *FileService) UploadPhyFileAndBindFile(email string, parentID uint64, fi
 		// 创建用户文件记录
 		userFile := &model.UserFile{
 			UserID:     userInfo.ID,
-			PhysicalID: phyFile.ID,
+			PhysicalID: &phyFile.ID,
 			ParentID:   parentID,
 			FileName:   respFileName,
 			FileExt:    strings.ToLower(filepath.Ext(respFileName)),
@@ -446,6 +459,120 @@ func (s *FileService) RestoreFile(userID, userFileID uint64) (*dto.TrashRestoreR
 	return &dto.TrashRestoreResponse{Message: "文件成功还原"}, nil
 }
 
+func (s *FileService) RenameFile(userID, userFileID uint64, newFileName string) (*dto.FileRenameResponse, error) {
+	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
+	if err != nil {
+		return nil, NotFound(fmt.Sprintf("文件不存在: %s", err))
+	}
+
+	if userFile.DeletedAt.Valid {
+		return nil, Conflict("文件在回收站中，无法重命名")
+	}
+
+	if err = s.validFileName(newFileName); err != nil {
+		return nil, BadRequest(fmt.Sprintf("文件名不合法: %s", err))
+	}
+
+	newExt := userFile.FileExt
+	if !userFile.IsDir {
+		ext := filepath.Ext(newFileName)
+		if ext == "" {
+			newFileName = newFileName + userFile.FileExt
+		} else {
+			newExt = strings.ToLower(ext)
+		}
+	}
+
+	if s.isFileNameExistsInFolder(userID, userFile.ParentID, newFileName, userFileID) {
+		uniqueName, err := s.generateUniqueFileName(userID, userFile.ParentID, newFileName, newExt, userFileID)
+		if err != nil {
+			return nil, Internal(fmt.Sprintf("生成唯一名称失败: %s", err))
+		}
+		newFileName = uniqueName
+	}
+
+	userFile.FileName = newFileName
+	userFile.FileExt = newExt
+	if err = s.fileRepo.UpdateUserFile(userFile); err != nil {
+		return nil, Internal(fmt.Sprintf("更新文件名失败: %s", err))
+	}
+
+	return &dto.FileRenameResponse{
+		UserFileID: userFile.ID,
+		FileName:   userFile.FileName,
+		FileExt:    userFile.FileExt,
+	}, nil
+}
+
+func (s *FileService) MoveFile(userID, userFileID, targetParentID uint64) (*dto.FileMoveResponse, error) {
+	// 获取源文件
+	userFile, err := s.fileRepo.GetUserFileByID(userID, userFileID)
+	if err != nil {
+		return nil, Internal(fmt.Sprintf("获取用户文件失败: %s", err))
+	}
+
+	// 只允许移动文件，不允许移动文件夹
+	if userFile.IsDir {
+		return nil, Conflict("该项是文件夹，不能使用文件移动接口")
+	}
+
+	// 回收站中的文件不允许移动
+	if userFile.DeletedAt.Valid {
+		return nil, Conflict("改文件在回收站中，请先回复再进行移动")
+	}
+
+	// 没移动，幂等返回
+	if targetParentID == userFile.ParentID {
+		return &dto.FileMoveResponse{
+			UserFileID:   userFile.ID,
+			FileName:     userFile.FileName,
+			NewParentID:  userFile.ParentID,
+			NewPathStack: userFile.PathStack,
+		}, nil
+	}
+
+	// 目标目录校验
+	var targetPathStack string
+	if targetParentID == 0 {
+		targetPathStack = "/0"
+	} else {
+		targetFolder, err := s.fileRepo.GetUserFolderByID(userID, targetParentID)
+		if err != nil {
+			return nil, NotFound(fmt.Sprintf("目标目录不存在: %s", err))
+		}
+		targetPathStack = targetFolder.PathStack
+	}
+
+	// 文件名冲突检测及重命名
+	resolvedName := userFile.FileName
+	if s.isFileNameExistsInFolder(userID, targetParentID, userFile.FileName, userFileID) {
+		uniqueName, err := s.generateUniqueFileName(userID, targetParentID, userFile.FileName, userFile.FileExt, userFileID)
+		if err != nil {
+			return nil, Internal(fmt.Sprintf("生成唯一名称失败: %s", err))
+		}
+		resolvedName = uniqueName
+	}
+
+	// 构建新 PathStack
+	newPathStack := targetPathStack + "/" + strconv.FormatUint(userFileID, 10)
+
+	// 更新文件
+	userFile.ParentID = targetParentID
+	userFile.FileName = resolvedName
+	userFile.PathStack = newPathStack
+	if err := s.fileRepo.UpdateUserFile(userFile); err != nil {
+		return nil, Internal(fmt.Sprintf("更新文件信息失败: %s", err))
+	}
+
+	// 返回结果
+	return &dto.FileMoveResponse{
+		UserFileID:   userFile.ID,
+		FileName:     resolvedName,
+		NewParentID:  targetParentID,
+		NewPathStack: newPathStack,
+	}, nil
+}
+
 // isFileNameExistsInFolder 检查指定文件夹中是否存在指定的文件名（排除指定文件自身）。
 // 用于判断重命名时目标名称是否与现有文件冲突。
 //
@@ -525,7 +652,7 @@ func (s *FileService) validFile(fileHeader *multipart.FileHeader) (*model.Physic
 	name := strings.TrimSuffix(fileName, ext)
 
 	// 2. 验证文件名与后缀
-	err := s.VolidtateFileName(name)
+	err := s.validFileName(name)
 	if err != nil {
 		return nil, err
 	}
@@ -534,7 +661,7 @@ func (s *FileService) validFile(fileHeader *multipart.FileHeader) (*model.Physic
 	// 100MB = 100 * 1024 * 1024
 	maxFileSize := s.config.Upload.MaxFileSizeMB * 1024 * 1024
 	if fileSize > maxFileSize {
-		return nil, errors.New("上传文件过大(超过 100MB)")
+		return nil, fmt.Errorf("上传文件过大(超过%dMB)", s.config.Upload.MaxFileSizeMB)
 	} else if fileSize <= 0 {
 		return nil, errors.New("上传文件为空")
 	}
@@ -546,7 +673,7 @@ func (s *FileService) validFile(fileHeader *multipart.FileHeader) (*model.Physic
 	}, nil
 }
 
-func (s *FileService) VolidtateFileName(fileName string) error {
+func (s *FileService) validFileName(fileName string) error {
 	if strings.TrimSpace(fileName) == "" {
 		return errors.New("文件名不能为空")
 	}
@@ -578,7 +705,8 @@ func (s *FileService) saveToTemp(fileHeader *multipart.FileHeader) (string, erro
 		return "", err
 	}
 
-	targetName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), fileHeader.Filename)
+	safeName := sanitizeFileName(fileHeader.Filename)
+	targetName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName)
 	finalPath := filepath.Join(finalDir, targetName)
 
 	out, err := os.Create(finalPath)
@@ -600,6 +728,28 @@ func (s *FileService) saveToTemp(fileHeader *multipart.FileHeader) (string, erro
 	return finalPath, nil
 }
 
+func sanitizeFileName(name string) string {
+	cleaned := sanitizeReplacer.Replace(name)
+
+	var builder strings.Builder
+	builder.Grow(len(cleaned))
+	for _, r := range cleaned {
+		if r < 32 {
+			continue
+		}
+		builder.WriteRune(r)
+	}
+	result := builder.String()
+
+	result = strings.TrimRight(result, " .")
+
+	if result == "" || result == "." || result == ".." {
+		result = fmt.Sprintf("file_%d", time.Now().UnixNano())
+	}
+
+	return result
+}
+
 func (s *FileService) promoteToLocal(tempPath string, originalName string) (string, error) {
 	baseDir := s.config.Storage.UploadDir
 
@@ -610,7 +760,8 @@ func (s *FileService) promoteToLocal(tempPath string, originalName string) (stri
 		return "", fmt.Errorf("创建上传目录失败: %s", err)
 	}
 
-	finalName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), originalName)
+	safeName := sanitizeFileName(originalName)
+	finalName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeName)
 	finalPath := filepath.Join(finalDir, finalName)
 
 	// 优先 Rename（同分区零拷贝）

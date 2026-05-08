@@ -55,7 +55,14 @@ func (r *FileRepo) CreateUserFile(userfile *model.UserFile) error {
 }
 
 func (r *FileRepo) UpdateUserFile(userfile *model.UserFile) error {
-	return r.db.Model(&model.UserFile{}).Save(userfile).Error
+	if userfile.ID == 0 {
+		return errors.New("无法更新：记录ID为空")
+	}
+
+	return r.db.Model(&model.UserFile{}).
+		Where("id = ? AND user_id = ?", userfile.ID, userfile.UserID).
+		Select("parent_id", "file_name", "file_ext", "file_size", "path_stack", "is_dir", "physical_id").
+		Updates(userfile).Error
 }
 
 func (r *FileRepo) GetUserFileByFolderName(userID, parentID uint64, folderName string) (*model.UserFile, error) {
@@ -106,6 +113,19 @@ func (r *FileRepo) GetParentIDyFolderName(userID uint64, folderName string) (*mo
 	var userfile model.UserFile
 
 	err := r.db.Where("user_id = ? AND file_name = ? AND is_dir = ?", userID, folderName, true).First(&userfile).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &userfile, nil
+}
+
+func (r *FileRepo) GetUserFolderByFileName(userID, parentID uint64, filename string) (*model.UserFile, error) {
+	var userfile model.UserFile
+
+	err := r.db.Model(&model.UserFile{}).
+		Where("user_id = ? AND parent_id = ? AND file_name = ? AND is_dir = ?", userID, parentID, filename, true).
+		First(&userfile).Error
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +326,7 @@ func (r *FileRepo) GetFileByDownloadReq(userID, userFileID uint64) (*model.UserF
 		return nil, nil, err
 	}
 
-	if userFile.PhysicalID == 0 || userFile.PhysicalFile == nil {
+	if userFile.PhysicalID == nil || userFile.PhysicalFile == nil {
 		return nil, nil, gorm.ErrRecordNotFound
 	}
 

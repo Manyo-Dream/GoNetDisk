@@ -1,6 +1,8 @@
 package router
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/manyodream/gonetdisk/configs"
 	"github.com/manyodream/gonetdisk/internal/controller"
@@ -8,6 +10,7 @@ import (
 	"github.com/manyodream/gonetdisk/internal/repository"
 	"github.com/manyodream/gonetdisk/internal/service"
 	"github.com/manyodream/gonetdisk/internal/util"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
 
@@ -26,12 +29,18 @@ func SetupRouter(db *gorm.DB, jwtManager *util.JWTManager, config *configs.Confi
 	folderService := service.NewFolderService(userRepo, fileRepo, jwtManager)
 	folderController := controller.NewFolderController(folderService)
 
+	limiter := middleware.NewIPRateLimiter(10 * time.Minute)
+
 	v1 := r.Group("/api/v1")
 	{
 		userHandler := v1.Group("/user")
 		{
-			userHandler.POST("/register", userController.Register)
-			userHandler.POST("/login", userController.Login)
+			userHandler.POST("/register",
+				limiter.RateLimit("register", rate.Every(15*time.Minute), 3),
+				userController.Register)
+			userHandler.POST("/login",
+				limiter.RateLimit("login", rate.Every(10*time.Minute), 3),
+				userController.Login)
 		}
 		userHandler.Use(middleware.AuthMiddleware(jwtManager, userRepo))
 		{
@@ -46,6 +55,8 @@ func SetupRouter(db *gorm.DB, jwtManager *util.JWTManager, config *configs.Confi
 			fileHandler.GET("/download/:userfile_id", fileController.DownloadFile)
 			fileHandler.DELETE("/delete/:userfile_id", fileController.MoveFileToTrash)
 			fileHandler.GET("/list", fileController.ReturnFileList)
+			fileHandler.PUT("/rename", fileController.RenameFile)
+			fileHandler.PUT("/move", fileController.MoveFile)
 		}
 
 		folderHandler := v1.Group("/folder")
@@ -53,6 +64,8 @@ func SetupRouter(db *gorm.DB, jwtManager *util.JWTManager, config *configs.Confi
 		{
 			folderHandler.POST("/create", folderController.CreateFolder)
 			folderHandler.DELETE("/delete/:userfolder_id", folderController.MoveFolderToTrash)
+			folderHandler.PUT("/rename", folderController.RenameFolder)
+			folderHandler.PUT("/move", folderController.MoveFolder)
 		}
 
 		trashHandler := v1.Group("/trash")

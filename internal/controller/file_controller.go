@@ -281,3 +281,69 @@ func (c *FileController) ReturnTrashList(ctx *gin.Context) {
 		"data": resp,
 	})
 }
+
+func (c *FileController) RenameFile(ctx *gin.Context) {
+	var req *dto.FileRenameRequest
+
+	if err := ctx.ShouldBind(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{
+			"error": "未认证用户",
+		})
+		return
+	}
+
+	resp, err := c.FileService.RenameFile(userID, req.UserFileID, req.NewFileName)
+	if err != nil {
+		ctx.JSON(statusFromErr(err), gin.H{
+			"error": "文件重命名失败: " + err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
+}
+
+func (c *FileController) MoveFile(ctx *gin.Context) {
+	var req *dto.FileMoveRequest
+
+	if err := ctx.ShouldBind(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{
+			"error": "未认证用户",
+		})
+		return
+	}
+
+	resp, err := c.FileService.MoveFile(userID, req.UserFileID, req.TargetParenID)
+	if err != nil {
+		ctx.JSON(statusFromErr(err), gin.H{
+			"error": "文件移动失败: " + err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
+}

@@ -25,3 +25,16 @@ type FileListResponse struct {
 	Page     int              `json:"page"`
 	PageSize int              `json:"page_size"`
 }
+
+type FileRenameResponse struct {
+	UserFileID uint64 `json:"userfile_id"`
+	FileName   string `json:"file_name"`
+	FileExt    string `json:"file_ext"`
+}
+
+type FileMoveResponse struct {
+    UserFileID  uint64 `json:"userfile_id"`
+    FileName    string `json:"file_name"`
+    NewParentID uint64 `json:"new_parent_id"`
+    NewPathStack string `json:"new_path_stack"`
+}

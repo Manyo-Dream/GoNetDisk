@@ -38,6 +38,11 @@ func (s *UserService) Register(email, username, password string) (*dto.RegisterR
 		return nil, Internal(fmt.Sprintf("检查用户名是否已存在失败: %s", err))
 	}
 
+	err = util.ValidatePassword(password)
+	if err != nil {
+		return nil, BadRequest(fmt.Sprintf("检验用户密码失败: %s", err))
+	}
+
 	hashPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, Internal(fmt.Sprintf("密码加密失败: %s", err))

@@ -89,7 +89,7 @@ func (fdc *FolderController) MoveFolderToTrash(ctx *gin.Context) {
 }
 
 func (fdc *FolderController) RestoreFolder(ctx *gin.Context) {
-		// 获取用户ID
+	// 获取用户ID
 	userID, ok := middleware.GetUserID(ctx)
 	if !ok {
 		ctx.JSON(http.StatusUnauthorized, gin.H{
@@ -128,4 +128,70 @@ func (fdc *FolderController) RestoreFolder(ctx *gin.Context) {
 		"msg":  "success",
 		"data": resp,
 	})
+}
+
+func (fdc *FolderController) RenameFolder(ctx *gin.Context) {
+	var req *dto.FolderRenameRequest
+
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{
+			"error": "未认证用户",
+		})
+		return
+	}
+
+	if err := ctx.ShouldBind(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "请求参数错误" + err.Error(),
+		})
+	}
+
+	resp, err := fdc.FolderServicer.RenameFolder(userID, req.UserFolderID, req.NewFolderName)
+	if err != nil {
+		ctx.JSON(statusFromErr(err), gin.H{
+			"error": "重命名文件夹失败: %s" + err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
+
+}
+
+func (fdc *FolderController) MoveFolder(ctx *gin.Context) {
+	var req *dto.FolderMoveRequest
+
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{
+			"error": "未认证用户",
+		})
+		return
+	}
+
+	if err := ctx.ShouldBind(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "请求参数错误" + err.Error(),
+		})
+	}
+
+	resp, err := fdc.FolderServicer.MoveFolder(userID, req.UserFolderID, req.TargetParenID)
+	if err != nil {
+		ctx.JSON(statusFromErr(err), gin.H{
+			"error": "移动文件夹失败: %s" + err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
+
 }

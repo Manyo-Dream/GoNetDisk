@@ -58,7 +58,7 @@ func (fds *FolderService) CreateFolder(email, folderName string, parentID uint64
 	// 创建用户文件表
 	userFolder := &model.UserFile{
 		UserID:     userInfo.ID,
-		PhysicalID: 0,
+		PhysicalID: nil,
 		ParentID:   parentID,
 		FileName:   folderName,
 		IsDir:      true,
@@ -94,6 +94,147 @@ func (fds *FolderService) CreateFolder(email, folderName string, parentID uint64
 	}, nil
 }
 
+func (fds *FolderService) MoveFolderToTrash(userID, userFileID uint64) (*dto.TrashDeleteResponse, error) {
+	userFile, err := fds.fileRepo.GetUserFileByIDAny(userID, userFileID)
+	if err != nil {
+		return nil, Internal(fmt.Sprintf("获取用户文件夹失败: %s", err))
+	}
+	if !userFile.IsDir {
+		return nil, Internal("该项是文件，请调用文件接口")
+	}
+	if !userFile.DeletedAt.Time.IsZero() {
+		return nil, Conflict("文件夹已在回收站")
+	}
+
+	err = fds.softDeleteFolderRecursive(userID, userFileID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.TrashDeleteResponse{Message: "文件夹成功移入回收站"}, nil
+}
+
+func (fds *FolderService) RenameFolder(userID, userFolderID uint64, newFolderName string) (*dto.FolderRenameResponse, error) {
+	// 验证文件夹名
+	if err := fds.VolidtateFolderName(newFolderName); err != nil {
+		return nil, BadRequest(fmt.Sprintf("校验FolderName失败: %s", err.Error()))
+	}
+
+	// 是否存在该文件夹
+	userFolder, err := fds.fileRepo.GetUserFolderByID(userID, userFolderID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, NotFound("不存在该文件夹")
+		}
+		return nil, Internal(fmt.Sprintf("获取文件夹信息失败: %s", err))
+	}
+
+	// 查询同一目录是否有同名文件夹
+	finalName := newFolderName
+	if fds.isFolderNameExistsInFolder(userID, userFolder.ParentID, newFolderName, userFolderID) {
+		uniqueName, err := fds.generateUniqueFolderName(userID, userFolder.ParentID, newFolderName, userFolderID)
+		if err != nil {
+			return nil, Internal(fmt.Sprintf("生成唯一文件夹名失败: %s", err.Error()))
+		}
+		finalName = uniqueName
+	}
+
+	// 更新数据库
+	userFolder.FileName = finalName
+	if err = fds.fileRepo.UpdateUserFile(userFolder); err != nil {
+		return nil, Internal(fmt.Sprintf("更新文件夹名失败: %s", err))
+	}
+
+	// 返回响应
+	return &dto.FolderRenameResponse{
+		UserFolderID: userFolder.ID,
+		FolderName:   finalName,
+	}, nil
+}
+
+func (fds *FolderService) MoveFolder(userID, userFolderID, targetParenID uint64) (*dto.FolderMoveResponse, error) {
+	userFolder, err := fds.fileRepo.GetUserFolderByID(userID, userFolderID)
+	if err != nil {
+		return nil, NotFound(fmt.Sprintf("获取文件夹信息失败: %s", err.Error()))
+	}
+	if !userFolder.IsDir {
+		return nil, BadRequest("此项不是文件夹")
+	}
+	if userFolder.DeletedAt.Valid {
+		return nil, Conflict("文件夹已在回收站，无法移动")
+	}
+
+	var targetPathStack string
+	if targetParenID == 0 {
+		targetPathStack = "/0"
+	} else {
+		targetFolder, err := fds.fileRepo.GetUserFolderByID(userID, targetParenID)
+		if err != nil {
+			return nil, NotFound(fmt.Sprintf("目标父目录不存在: %s", err.Error()))
+		}
+		targetPathStack = targetFolder.PathStack
+
+		if strings.HasPrefix(targetPathStack+"/", userFolder.PathStack+"/") || targetPathStack == userFolder.PathStack {
+			return nil, BadRequest("不能将文件夹移动到自身或其子目录中")
+		}
+	}
+
+	if userFolder.ParentID == targetParenID {
+		return nil, Conflict("目标目录与原目录相同")
+	}
+
+	finalName := userFolder.FileName
+	if fds.isFolderNameExistsInFolder(userID, targetParenID, userFolder.FileName, userFolderID) {
+		uniqueName, err := fds.generateUniqueFolderName(userID, targetParenID, userFolder.FileName, userFolderID)
+		if err != nil {
+			return nil, Internal(fmt.Sprintf("生成唯一文件夹名失败: %s", err.Error()))
+		}
+		finalName = uniqueName
+	}
+
+	oldPathStack := userFolder.PathStack
+	newPathStack := targetPathStack + "/" + strconv.FormatUint(userFolder.ID, 10)
+
+	userFolder.ParentID = targetParenID
+	userFolder.FileName = finalName
+	userFolder.PathStack = newPathStack
+	if err = fds.fileRepo.UpdateUserFile(userFolder); err != nil {
+		return nil, Internal(fmt.Sprintf("更新文件夹失败: %s", err.Error()))
+	}
+
+	if err = fds.updateChildrenPathStack(userID, userFolderID, oldPathStack, newPathStack); err != nil {
+		return nil, Internal(fmt.Sprintf("更新子文件路径失败: %s", err.Error()))
+	}
+
+	return &dto.FolderMoveResponse{
+		UserFolderID: userFolder.ID,
+		FolderName:   finalName,
+		NewParentID:  targetParenID,
+		NewPathStack: newPathStack,
+	}, nil
+}
+
+func (fds *FolderService) updateChildrenPathStack(userID, parentID uint64, oldPrefix, newPrefix string) error {
+	children, err := fds.fileRepo.GetChildrenFiles(userID, parentID)
+	if err != nil {
+		return err
+	}
+
+	for _, child := range children {
+		newPath := strings.Replace(child.PathStack, oldPrefix, newPrefix, 1)
+		if err = fds.fileRepo.UpdateUserFilePath(child.ID, newPath); err != nil {
+			return err
+		}
+		if child.IsDir {
+			if err = fds.updateChildrenPathStack(userID, child.ID, oldPrefix, newPrefix); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func (fds *FolderService) VolidtateFolderName(folderName string) error {
 	if strings.TrimSpace(folderName) == "" {
 		return errors.New("文件夹名不能为空")
@@ -114,26 +255,6 @@ func (fds *FolderService) VolidtateFolderName(folderName string) error {
 	}
 
 	return nil
-}
-
-func (fds *FolderService) MoveFolderToTrash(userID, userFileID uint64) (*dto.TrashDeleteResponse, error) {
-	userFile, err := fds.fileRepo.GetUserFileByIDAny(userID, userFileID)
-	if err != nil {
-		return nil, Internal(fmt.Sprintf("获取用户文件夹失败: %s", err))
-	}
-	if !userFile.IsDir {
-		return nil, Internal("该项是文件，请调用文件接口")
-	}
-	if !userFile.DeletedAt.Time.IsZero() {
-		return nil, Conflict("文件夹已在回收站")
-	}
-
-	err = fds.softDeleteFolderRecursive(userID, userFileID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &dto.TrashDeleteResponse{Message: "文件夹成功移入回收站"}, nil
 }
 
 func (fds *FolderService) softDeleteFolderRecursive(userID, folderID uint64) error {
@@ -255,7 +376,7 @@ func (fds *FolderService) RestoreFolder(userID, folderID uint64) (*dto.TrashRest
 //   - true 表示文件夹名称在目标目录中已存在（且不是排除的文件）
 //   - false 表示可以使用该文件夹名称
 func (fds *FolderService) isFolderNameExistsInFolder(userID, parentID uint64, folderName string, excludeFolderID uint64) bool {
-	result, err := fds.fileRepo.GetUserFileByFileName(userID, parentID, folderName)
+	result, err := fds.fileRepo.GetUserFolderByFileName(userID, parentID, folderName)
 	if err != nil {
 		return false
 	}
