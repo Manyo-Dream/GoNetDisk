@@ -21,7 +21,14 @@ func InitDB(dsn string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("连接数据库失败: %w", err)
 	}
 
-	if err := db.AutoMigrate(&model.User{}, &model.PhysicalFile{}, &model.UserFile{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.User{},
+		&model.PhysicalFile{},
+		&model.UserFile{},
+		&model.UploadTask{},
+		&model.UploadFileRecord{},
+		&model.Share{},
+	); err != nil {
 		return nil, fmt.Errorf("自动迁移操作失败: %w", err)
 	}
 

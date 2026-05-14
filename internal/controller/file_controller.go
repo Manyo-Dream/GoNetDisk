@@ -75,28 +75,28 @@ func (c *FileController) DownloadFile(ctx *gin.Context) {
 		return
 	}
 
-	filemata, file, err := c.FileService.DownloadUserFile(userID, req.UserFileID)
+	fileMeta, file, err := c.FileService.DownloadUserFile(userID, req.UserFileID)
 	if err != nil {
 		ctx.JSON(statusFromErr(err), gin.H{
-			"message": err.Error(),
+			"error": "下载文件失败: " + err.Error(),
 		})
 		return
 	}
 	defer file.Close()
 
-	contentType := mime.TypeByExtension(filepath.Ext(filemata.FileName))
+	contentType := mime.TypeByExtension(filepath.Ext(fileMeta.FileName))
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-	fileName := filemata.FileName
+	fileName := fileMeta.FileName
 	escapedName := url.PathEscape(fileName)
 	disposition := fmt.Sprintf("attachment; filename=\"%s\"; filename*=utf-8''%s", escapedName, escapedName)
 
 	ctx.Header("Content-Disposition", disposition)
 	ctx.Header("X-Content-Type-Options", "nosniff")
 
-	ctx.DataFromReader(http.StatusOK, filemata.FileSize, contentType, file, nil)
+	ctx.DataFromReader(http.StatusOK, fileMeta.FileSize, contentType, file, nil)
 }
 
 func (c *FileController) ReturnFileList(ctx *gin.Context) {
@@ -305,6 +305,38 @@ func (c *FileController) RenameFile(ctx *gin.Context) {
 		ctx.JSON(statusFromErr(err), gin.H{
 			"error": "文件重命名失败: " + err.Error(),
 		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
+}
+
+func (c *FileController) RemoveFile(ctx *gin.Context) {
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "未认证用户"})
+		return
+	}
+
+	userFileIDStr := ctx.Param("userfile_id")
+	if userFileIDStr == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "用户文件ID为空"})
+		return
+	}
+
+	userFileID, err := strconv.Atoi(userFileIDStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误" + err.Error()})
+		return
+	}
+
+	resp, err := c.FileService.RemoveFile(userID, uint64(userFileID))
+	if err != nil {
+		ctx.JSON(statusFromErr(err), gin.H{"error": "彻底删除文件失败:" + err.Error()})
 		return
 	}
 

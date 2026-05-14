@@ -336,3 +336,29 @@ func (r *FileRepo) GetFileByDownloadReq(userID, userFileID uint64) (*model.UserF
 func (r *FileRepo) UpdateUserFilePath(id uint64, pathStack string) error {
 	return r.db.Model(&model.UserFile{}).Where("id = ?", id).Update("path_stack", pathStack).Error
 }
+
+func (r *FileRepo) HardDeleteUserFile(userID, userFileID uint64) error {
+	result := r.db.Unscoped().Model(&model.UserFile{}).
+		Where("user_id = ? AND id = ?", userID, userFileID).
+		Delete(&model.UserFile{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("未找到符合条件的文件")
+	}
+	return nil
+}
+
+func (r *FileRepo) DeletePhysicalFile(id uint64) error {
+	result := r.db.Unscoped().Model(&model.PhysicalFile{}).
+		Where("id = ?", id).
+		Delete(&model.PhysicalFile{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("未找到物理文件")
+	}
+	return nil
+}

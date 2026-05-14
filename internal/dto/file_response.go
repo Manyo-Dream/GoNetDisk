@@ -10,6 +10,7 @@ type FileUploadResponse struct {
 	FileExt    string `json:"file_ext"`
 	FIleSize   int64  `json:"file_size"`
 	ParentID   uint64 `json:"parent_id"`
+	FilePath   string `json:"file_path"`
 }
 
 type FileDownloadMeta struct {
@@ -33,8 +34,8 @@ type FileRenameResponse struct {
 }
 
 type FileMoveResponse struct {
-    UserFileID  uint64 `json:"userfile_id"`
-    FileName    string `json:"file_name"`
-    NewParentID uint64 `json:"new_parent_id"`
-    NewPathStack string `json:"new_path_stack"`
+	UserFileID   uint64 `json:"userfile_id"`
+	FileName     string `json:"file_name"`
+	NewParentID  uint64 `json:"new_parent_id"`
+	NewPathStack string `json:"new_path_stack"`
 }

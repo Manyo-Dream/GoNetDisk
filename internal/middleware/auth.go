@@ -9,16 +9,19 @@ import (
 )
 func AuthMiddleware(jwtManager *util.JWTManager, userRepo *repository.UserRepo) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
+		tokenString := ""
+
 		authHeader := ctx.GetHeader("Authorization")
-		if authHeader == "" {
-			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "未提供认证token"})
-			ctx.Abort()
-			return
+		if authHeader != "" {
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 		}
 
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "无效的token格式"})
+		if tokenString == "" {
+			tokenString = ctx.Query("token")
+		}
+
+		if tokenString == "" || tokenString == authHeader {
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": "未提供认证token"})
 			ctx.Abort()
 			return
 		}

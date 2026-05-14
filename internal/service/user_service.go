@@ -140,3 +140,18 @@ func (s *UserService) UpdateUserInfo(userID uint64, username, avatarUrl *string)
 		AvatarUrl: user.Avatar_Url,
 	}, nil
 }
+
+func (s *UserService) GetUserSpace(userID uint64) (*dto.UserSpaceResponse, error) {
+	user, err := s.userRepo.GetUserByID(userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, NotFound("用户不存在")
+		}
+		return nil, Internal(fmt.Sprintf("查询用户失败: %s", err))
+	}
+
+	return &dto.UserSpaceResponse{
+		UsedSpace:  user.Used_Space,
+		TotalSpace: user.Total_Space,
+	}, nil
+}

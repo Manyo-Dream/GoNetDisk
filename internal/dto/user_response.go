@@ -23,3 +23,8 @@ type UserInfoUpdateResponse struct {
 	Email    string `json:"email"`
 	AvatarUrl string `json:"avatar_url"`
 }
+
+type UserSpaceResponse struct {
+	UsedSpace  uint64 `json:"used_space"`
+	TotalSpace uint64 `json:"total_space"`
+}

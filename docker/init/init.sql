@@ -53,6 +53,47 @@ CREATE TABLE `user_file` (
     INDEX `idx_physical` (`physical_id`)
 ) ENGINE = InnoDB;
 
+CREATE TABLE upload_task (
+    `id`            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `task_id`       VARCHAR(64)    NOT NULL COMMENT '任务UUID，客户端凭此轮询进度',
+    `user_id`       BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+    `status`        TINYINT        NOT NULL DEFAULT 1 COMMENT '1=处理中 2=全部成功 3=部分失败 4=全部失败',
+    `file_count`    INT            NOT NULL DEFAULT 0 COMMENT '本批次文件总数',
+    `success_count` INT            NOT NULL DEFAULT 0 COMMENT '已成功数量',
+    `fail_count`    INT            NOT NULL DEFAULT 0 COMMENT '已失败数量',
+    `total_size`    BIGINT         NOT NULL DEFAULT 0 COMMENT '总字节数',
+    `parent_id`     BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '目标目录ID',
+    `error_msg`     VARCHAR(1000)  DEFAULT '' COMMENT '汇总错误信息',
+    `created_at`    DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    UNIQUE INDEX uk_task_id (`task_id`),
+    INDEX idx_user_id (`user_id`),
+    INDEX idx_created_at (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='批量上传任务表';
+
+
+CREATE TABLE upload_file_record (
+    `id`            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `task_id`       VARCHAR(64)    NOT NULL COMMENT '关联 upload_task.task_id',
+    `user_id`       BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+    `file_index`    INT            NOT NULL DEFAULT 0 COMMENT '文件在批次中的序号(前端传)',
+    `file_name`     VARCHAR(255)   NOT NULL COMMENT '原始文件名',
+    `file_ext`      VARCHAR(50)    NOT NULL DEFAULT '',
+    `file_size`     BIGINT         NOT NULL DEFAULT 0,
+    `file_hash`     VARCHAR(64)    DEFAULT '' COMMENT 'MD5，处理中计算',
+    `status`        TINYINT        NOT NULL DEFAULT 1 COMMENT '1=等待 2=成功 3=失败 4=秒传',
+    `physical_id`   BIGINT UNSIGNED DEFAULT NULL COMMENT '关联 physical_file.id',
+    `user_file_id`  BIGINT UNSIGNED DEFAULT NULL COMMENT '关联 user_file.id',
+    `error_msg`     VARCHAR(500)   DEFAULT '' COMMENT '单个文件失败原因',
+    `created_at`    DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_task_id (`task_id`),
+    INDEX idx_user_id (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='批量上传文件明细表';
+
+
 -- 4. 角色表
 CREATE TABLE `role` (
     `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoNetDisk</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app-login-page" class="page active"></div>
+
+  <div id="app-main-layout" class="main-layout">
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2z"/></svg>
+        GoNetDisk
+      </div>
+      <nav class="sidebar-nav">
+        <div class="sidebar-item active" data-view="files" onclick="App.setState({currentView:'files',parentId:0,breadcrumbs:[]})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+          全部文件
+        </div>
+        <div class="sidebar-item" data-view="shares" onclick="App.setState({currentView:'shares'})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51l6.83 3.98m-.01-10.98l-6.82 3.98"/></svg>
+          我的分享
+        </div>
+        <div class="sidebar-item" data-view="trash" onclick="App.setState({currentView:'trash'})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+          回收站
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-item" onclick="App.showSpace()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          空间用量
+        </div>
+        <div class="sidebar-item" onclick="App.logout()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4m7 14l5-5-5-5m5 5H9"/></svg>
+          退出登录
+        </div>
+      </nav>
+      <div class="sidebar-storage">
+        <div class="sidebar-storage-label">存储空间</div>
+        <div class="sidebar-storage-bar"><div class="sidebar-storage-fill" id="sidebar-storage-fill" style="width:0%"></div></div>
+        <div class="sidebar-storage-text" id="sidebar-storage-text">加载中...</div>
+      </div>
+    </aside>
+    <div class="main" id="main-content-area"></div>
+  </div>
+
+  <div class="drop-zone" id="drop-zone">
+    <div>释放以上传文件</div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/views/login.js"></script>
+  <script src="js/views/files.js"></script>
+  <script src="js/views/trash.js"></script>
+  <script src="js/views/shares.js"></script>
+  <script src="js/app.js"></script>
+
+  <script>
+    document.addEventListener('dragover', (e) => { e.preventDefault(); E('drop-zone').classList.add('active'); });
+    document.addEventListener('dragleave', (e) => { if (e.target === document.documentElement) E('drop-zone').classList.remove('active'); });
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      E('drop-zone').classList.remove('active');
+      if (App.state.currentView !== 'files') return;
+      const files = e.dataTransfer.files;
+      if (!files.length) return;
+      const parentId = App.state.parentId;
+      App.toast(`正在上传 ${files.length} 个文件...`);
+      (async () => {
+        for (const f of files) {
+          try { await API.file.upload(parentId, f); } catch (err) { App.toast(`${f.name}: ${err.message}`); }
+        }
+        App.toast('上传完成');
+        FilesView.loadFiles();
+        App.updateSidebarSpace();
+      })();
+    });
+  </script>
+</body>
+</html>

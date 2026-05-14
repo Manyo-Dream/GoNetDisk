@@ -107,3 +107,23 @@ func (c *UserController) UpdateUserInfo(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, resp)
 }
+
+func (c *UserController) GetUserSpace(ctx *gin.Context) {
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "未认证用户"})
+		return
+	}
+
+	resp, err := c.UserService.GetUserSpace(userID)
+	if err != nil {
+		ctx.JSON(statusFromErr(err), gin.H{"error": "获取空间信息失败: " + err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
+}

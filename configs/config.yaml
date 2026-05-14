@@ -3,6 +3,13 @@ server:
   host: "0.0.0.0"
   mode: debug
 
+minio:
+  endpoint: "localhost:9000"
+  accesskey: "gonetdisk"
+  secretkey: "gonetdisk"
+  bucket: "gonetdisk"
+  usessl: false
+
 database:
   host: "localhost"
   port: 3306
@@ -16,10 +23,6 @@ database:
 jwt:
   secret: "123321"
   expiresHours: 24
-
-storage:
-  tempDir: "./storage/temp"
-  uploadDir: "./storage/uploads"
 
 upload:
   maxFileSizeMB: 100

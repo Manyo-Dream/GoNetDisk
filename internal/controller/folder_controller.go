@@ -163,6 +163,38 @@ func (fdc *FolderController) RenameFolder(ctx *gin.Context) {
 
 }
 
+func (fdc *FolderController) RemoveFolder(ctx *gin.Context) {
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "未认证用户"})
+		return
+	}
+
+	userFolderIDStr := ctx.Param("userfolder_id")
+	if userFolderIDStr == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "用户文件夹ID为空"})
+		return
+	}
+
+	userFolderID, err := strconv.Atoi(userFolderIDStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误" + err.Error()})
+		return
+	}
+
+	resp, err := fdc.FolderServicer.RemoveFolder(userID, uint64(userFolderID))
+	if err != nil {
+		ctx.JSON(statusFromErr(err), gin.H{"error": "彻底删除文件夹失败:" + err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
+}
+
 func (fdc *FolderController) MoveFolder(ctx *gin.Context) {
 	var req *dto.FolderMoveRequest
 
