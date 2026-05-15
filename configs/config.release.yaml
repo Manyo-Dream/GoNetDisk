@@ -1,0 +1,28 @@
+server:
+  port: 9090
+  host: "0.0.0.0"
+  mode: release
+
+minio:
+  endpoint: "minio:9000"
+  accesskey: "gonetdisk"
+  secretkey: "gonetdisk"
+  bucket: "gonetdisk"
+  usessl: false
+
+database:
+  host: "mysql"
+  port: 3306
+  user: "root"
+  password: "gonetdisk"
+  name: "gonetdisk"
+  charset: "utf8mb4"
+  parseTime: true
+  loc: "Local"
+
+jwt:
+  secret: "请修改为随机字符串"
+  expiresHours: 24
+
+upload:
+  maxFileSizeMB: 100
