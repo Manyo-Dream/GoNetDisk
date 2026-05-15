@@ -43,7 +43,11 @@ func (fdc *FolderController) CreateFolder(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
 }
 
 func (fdc *FolderController) MoveFolderToTrash(ctx *gin.Context) {
@@ -60,7 +64,7 @@ func (fdc *FolderController) MoveFolderToTrash(ctx *gin.Context) {
 	userFolderIDStr := ctx.Param("userfolder_id")
 	if userFolderIDStr == "" {
 		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "用户文件ID为空",
+			"error": "用户文件夹ID为空",
 		})
 		return
 	}
@@ -102,7 +106,7 @@ func (fdc *FolderController) RestoreFolder(ctx *gin.Context) {
 	userFolderIDStr := ctx.Param("userfolder_id")
 	if userFolderIDStr == "" {
 		ctx.JSON(http.StatusBadRequest, gin.H{
-			"error": "用户文件ID为空",
+			"error": "用户文件夹ID为空",
 		})
 		return
 	}
@@ -118,7 +122,7 @@ func (fdc *FolderController) RestoreFolder(ctx *gin.Context) {
 	resp, err := fdc.FolderServicer.RestoreFolder(userID, uint64(userFolderID))
 	if err != nil {
 		ctx.JSON(statusFromErr(err), gin.H{
-			"error": "移动到回收站失败:" + err.Error(),
+			"error": "恢复文件夹失败:" + err.Error(),
 		})
 		return
 	}
@@ -145,12 +149,13 @@ func (fdc *FolderController) RenameFolder(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误" + err.Error(),
 		})
+		return
 	}
 
 	resp, err := fdc.FolderServicer.RenameFolder(userID, req.UserFolderID, req.NewFolderName)
 	if err != nil {
 		ctx.JSON(statusFromErr(err), gin.H{
-			"error": "重命名文件夹失败: %s" + err.Error(),
+			"error": "重命名文件夹失败: " + err.Error(),
 		})
 		return
 	}
@@ -210,12 +215,13 @@ func (fdc *FolderController) MoveFolder(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{
 			"error": "请求参数错误" + err.Error(),
 		})
+		return
 	}
 
-	resp, err := fdc.FolderServicer.MoveFolder(userID, req.UserFolderID, req.TargetParenID)
+	resp, err := fdc.FolderServicer.MoveFolder(userID, req.UserFolderID, req.TargetParentID)
 	if err != nil {
 		ctx.JSON(statusFromErr(err), gin.H{
-			"error": "移动文件夹失败: %s" + err.Error(),
+			"error": "移动文件夹失败: " + err.Error(),
 		})
 		return
 	}

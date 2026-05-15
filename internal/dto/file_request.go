@@ -17,11 +17,11 @@ type FileListRequest struct {
 }
 
 type FileRenameRequest struct {
-	UserFileID  uint64 `json:"userfile_id" form:"userfile_id" binding:"required,min=1"`
-	NewFileName string `json:"new_filename" form:"new_filename" binding:"required"`
+	UserFileID  uint64 `json:"user_file_id" form:"user_file_id" binding:"required,min=1"`
+	NewFileName string `json:"new_file_name" form:"new_file_name" binding:"required"`
 }
 
 type FileMoveRequest struct {
-	UserFileID    uint64 `json:"userfile_id" form:"userfile_id" binding:"required,min=1"`
-	TargetParenID uint64 `json:"target_parent_id" form:"target_parent_id"`
+	UserFileID     uint64 `json:"user_file_id" form:"user_file_id" binding:"required,min=1"`
+	TargetParentID uint64 `json:"target_parent_id" form:"target_parent_id"`
 }

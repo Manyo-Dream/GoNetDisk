@@ -6,11 +6,11 @@ type FolderRequest struct {
 }
 
 type FolderRenameRequest struct {
-	UserFolderID  uint64 `json:"userfolder_id" form:"userfolder_id" binding:"required,min=1"`
-	NewFolderName string `json:"new_foldername" form:"new_foldername" binding:"required"`
+	UserFolderID  uint64 `json:"user_folder_id" form:"user_folder_id" binding:"required,min=1"`
+	NewFolderName string `json:"new_folder_name" form:"new_folder_name" binding:"required"`
 }
 
 type FolderMoveRequest struct {
-	UserFolderID  uint64 `json:"userfolder_id" form:"userfolder_id" binding:"required,min=1"`
-	TargetParenID uint64 `json:"target_parent_id" form:"target_parent_id"`
+	UserFolderID  uint64 `json:"user_folder_id" form:"user_folder_id" binding:"required,min=1"`
+	TargetParentID uint64 `json:"target_parent_id" form:"target_parent_id"`
 }

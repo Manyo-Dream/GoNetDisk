@@ -35,7 +35,11 @@ func (c *UserController) Register(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
 }
 
 func (c *UserController) Login(ctx *gin.Context) {
@@ -56,7 +60,11 @@ func (c *UserController) Login(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
 }
 
 func (c *UserController) GetUserInfo(ctx *gin.Context) {
@@ -76,7 +84,11 @@ func (c *UserController) GetUserInfo(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
 }
 
 func (c *UserController) UpdateUserInfo(ctx *gin.Context) {
@@ -105,7 +117,11 @@ func (c *UserController) UpdateUserInfo(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
 }
 
 func (c *UserController) GetUserSpace(ctx *gin.Context) {

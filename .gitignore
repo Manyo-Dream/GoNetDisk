@@ -47,9 +47,6 @@ Thumbs.db
 # Log files
 *.log
 
-# Storage files (for your file upload feature)
-storage/uploads/*
-
 # Go modules cache
 go/pkg/mod/
 

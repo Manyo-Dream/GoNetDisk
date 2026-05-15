@@ -12,21 +12,62 @@ services:
     volumes:
       - ./mysql_data:/var/lib/mysql
       - ./init:/docker-entrypoint-initdb.d
-    command: --character-set-server=utf8mb4
+    command: >-
+      --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
+      --innodb-buffer-pool-size=128M
+      --max-connections=50
+      --performance-schema=OFF
+    deploy:
+      resources:
+        limits:
+          memory: 600M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   minio:
-    image: minio/minio:RELEASE.2025-04-08T15-41-24Z # 对应 2025-04-22 版本
+    image: minio/minio:RELEASE.2025-04-08T15-41-24Z
     container_name: gonetdisk-minio
     restart: always
     environment:
-      MINIO_ROOT_USER: gonetdisk # 建议修改为自定义用户名
-      MINIO_ROOT_PASSWORD: gonetdisk # 建议修改为强密码
+      MINIO_ROOT_USER: gonetdisk
+      MINIO_ROOT_PASSWORD: gonetdisk
       TZ: Asia/Shanghai
     ports:
-      - "9000:9000" # API 端口
-      - "9001:9001" # Web Console 端口
+      - "9000:9000"
+      - "9001:9001"
     volumes:
-      - ./minio_data:/data # 数据持久化目录
-      - ./minio_config:/root/.minio # 配置文件目录
+      - ./minio_data:/data
+      - ./minio_config:/root/.minio
     command: server /data --console-address ":9001"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build: ..
+    container_name: gonetdisk-server
+    restart: always
+    environment:
+      CONFIG_PATH: /app/configs/config.release.yaml
+      TZ: Asia/Shanghai
+    ports:
+      - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy

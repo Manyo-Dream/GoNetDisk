@@ -54,7 +54,11 @@ func (c *FileController) UploadFile(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, resp)
+	ctx.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"msg":  "success",
+		"data": resp,
+	})
 }
 
 func (c *FileController) DownloadFile(ctx *gin.Context) {
@@ -121,7 +125,7 @@ func (c *FileController) ReturnFileList(ctx *gin.Context) {
 		req.Page = 1
 	}
 	if req.PageSize <= 0 {
-		req.PageSize = 5
+		req.PageSize = 20
 	}
 
 	if req.PageSize > 100 {
@@ -222,7 +226,7 @@ func (c *FileController) RestoreFile(ctx *gin.Context) {
 	resp, err := c.FileService.RestoreFile(userID, uint64(userFileID))
 	if err != nil {
 		ctx.JSON(statusFromErr(err), gin.H{
-			"error": "移动到回收站失败:" + err.Error(),
+			"error": "恢复文件失败:" + err.Error(),
 		})
 		return
 	}
@@ -256,7 +260,7 @@ func (c *FileController) ReturnTrashList(ctx *gin.Context) {
 		req.Page = 1
 	}
 	if req.PageSize <= 0 {
-		req.PageSize = 5
+		req.PageSize = 20
 	}
 
 	if req.PageSize > 100 {
@@ -365,7 +369,7 @@ func (c *FileController) MoveFile(ctx *gin.Context) {
 		return
 	}
 
-	resp, err := c.FileService.MoveFile(userID, req.UserFileID, req.TargetParenID)
+	resp, err := c.FileService.MoveFile(userID, req.UserFileID, req.TargetParentID)
 	if err != nil {
 		ctx.JSON(statusFromErr(err), gin.H{
 			"error": "文件移动失败: " + err.Error(),

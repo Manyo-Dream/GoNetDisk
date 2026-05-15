@@ -137,7 +137,10 @@ const FilesView = {
   download(id) {
     const a = document.createElement('a');
     a.href = API.file.downloadUrl(id);
+    a.download = '';
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
   },
 
   showCreateFolder() {
@@ -185,6 +188,7 @@ const FilesView = {
 
   showContextMenu(e, id, name, isDir) {
     e.preventDefault();
+    e.stopPropagation();
     ContextMenu.show(e.clientX, e.clientY, [
       { label: '重命名', icon: 'edit', action: () => this.showRename(id, name, isDir) },
       { label: '移入回收站', icon: 'trash', action: () => this.doTrash(id, isDir) },

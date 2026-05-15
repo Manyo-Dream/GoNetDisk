@@ -57,7 +57,7 @@ const API = (() => {
       rename: (userFileId, newFileName) =>
         request('PUT', '/file/rename', { user_file_id: userFileId, new_file_name: newFileName }),
       move: (userFileId, targetParentId) =>
-        request('PUT', '/file/move', { user_file_id: userFileId, target_paren_id: targetParentId }),
+        request('PUT', '/file/move', { user_file_id: userFileId, target_parent_id: targetParentId }),
       trash: (userFileId) =>
         request('DELETE', `/file/delete/${userFileId}`),
       remove: (userFileId) =>
@@ -77,8 +77,8 @@ const API = (() => {
         request('POST', `/trash/folder/${folderId}`),
       rename: (userFolderId, newFolderName) =>
         request('PUT', '/folder/rename', { user_folder_id: userFolderId, new_folder_name: newFolderName }),
-      move: (userFolderId, targetParenId) =>
-        request('PUT', '/folder/move', { user_folder_id: userFolderId, target_paren_id: targetParenId }),
+      move: (userFolderId, targetParentId) =>
+        request('PUT', '/folder/move', { user_folder_id: userFolderId, target_parent_id: targetParentId }),
     },
 
     trash: {

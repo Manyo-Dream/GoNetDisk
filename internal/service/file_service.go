@@ -406,8 +406,15 @@ func (s *FileService) RemoveFile(userID, userFileID uint64) (*dto.TrashDeleteRes
 		return nil, BadRequest("该项是文件夹，请调用文件夹接口")
 	}
 
-	if userFile.PhysicalID != nil {
-		phyFile, err := s.fileRepo.GetPhyFileByID(*userFile.PhysicalID)
+	physicalID := userFile.PhysicalID
+
+	err = s.fileRepo.HardDeleteUserFile(userID, userFileID)
+	if err != nil {
+		return nil, Internal(fmt.Sprintf("删除文件记录失败: %s", err))
+	}
+
+	if physicalID != nil {
+		phyFile, err := s.fileRepo.GetPhyFileByID(*physicalID)
 		if err != nil {
 			return nil, Internal(fmt.Sprintf("获取物理文件失败: %s", err))
 		}
@@ -439,11 +446,6 @@ func (s *FileService) RemoveFile(userID, userFileID uint64) (*dto.TrashDeleteRes
 		if err != nil {
 			return nil, Internal(fmt.Sprintf("更新用户空间失败: %s", err))
 		}
-	}
-
-	err = s.fileRepo.HardDeleteUserFile(userID, userFileID)
-	if err != nil {
-		return nil, Internal(fmt.Sprintf("删除文件记录失败: %s", err))
 	}
 
 	return &dto.TrashDeleteResponse{Message: "文件已彻底删除"}, nil

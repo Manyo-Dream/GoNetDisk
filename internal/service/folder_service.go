@@ -140,8 +140,15 @@ func (fds *FolderService) hardDeleteFolderRecursive(userID, folderID uint64) err
 				return err
 			}
 		} else {
-			if child.PhysicalID != nil {
-				phyFile, err := fds.fileRepo.GetPhyFileByID(*child.PhysicalID)
+			physicalID := child.PhysicalID
+
+			err = fds.fileRepo.HardDeleteUserFile(userID, child.ID)
+			if err != nil {
+				return Internal(fmt.Sprintf("删除文件记录失败: %s", err))
+			}
+
+			if physicalID != nil {
+				phyFile, err := fds.fileRepo.GetPhyFileByID(*physicalID)
 				if err != nil {
 					return Internal(fmt.Sprintf("获取物理文件失败: %s", err))
 				}
@@ -173,11 +180,6 @@ func (fds *FolderService) hardDeleteFolderRecursive(userID, folderID uint64) err
 				if err != nil {
 					return Internal(fmt.Sprintf("更新用户空间失败: %s", err))
 				}
-			}
-
-			err = fds.fileRepo.HardDeleteUserFile(userID, child.ID)
-			if err != nil {
-				return Internal(fmt.Sprintf("删除文件记录失败: %s", err))
 			}
 		}
 	}
