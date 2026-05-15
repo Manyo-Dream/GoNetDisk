@@ -51,5 +51,8 @@ Thumbs.db
 go/pkg/mod/
 
 docker/mysql_data
-
+docker/minio_data/
+docker/minio_config
+.opencode
 ai-docs
+configs/config.yaml
