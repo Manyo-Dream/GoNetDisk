@@ -45,19 +45,19 @@ func NewTaskService(userRepo *repository.UserRepo, fileRepo *repository.FileRepo
 
 func (ts *TaskService) CreateBatchUploadTask(userID uint64, req dto.BatchUploadRequest) (*dto.BatchUploadResponse, error) {
 	if len(req.Files) == 0 {
-		return nil, BadRequest("任务文件为空")
+		return nil, util.BadRequest("任务文件为空")
 	}
 
 	var totalSize int64
 	seen := make(map[int]bool, len(req.Files))
 	for _, f := range req.Files {
 		if seen[f.Index] {
-			return nil, BadRequest(fmt.Sprintf("文件序号 %d 重复", f.Index))
+			return nil, util.BadRequest(fmt.Sprintf("文件序号 %d 重复", f.Index))
 		}
 		seen[f.Index] = true
 
 		if f.FileSize <= 0 {
-			return nil, BadRequest(fmt.Sprintf("文件 %s 大小无效: %d", f.FileName, f.FileSize))
+			return nil, util.BadRequest(fmt.Sprintf("文件 %s 大小无效: %d", f.FileName, f.FileSize))
 		}
 
 		totalSize += f.FileSize
@@ -65,11 +65,11 @@ func (ts *TaskService) CreateBatchUploadTask(userID uint64, req dto.BatchUploadR
 
 	userInfo, err := ts.userRepo.GetUserByID(userID)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("获取用户信息失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("获取用户信息失败: %s", err))
 	}
 
 	if totalSize > int64(userInfo.Total_Space-userInfo.Used_Space) {
-		return nil, BadRequest(fmt.Sprintf("剩余空间不足，用户剩余空间: %d MB", int64(userInfo.Total_Space-userInfo.Used_Space)/1000))
+		return nil, util.BadRequest(fmt.Sprintf("剩余空间不足，用户剩余空间: %d MB", int64(userInfo.Total_Space-userInfo.Used_Space)/1000))
 	}
 
 	taskID := uuid.New().String()
@@ -84,7 +84,7 @@ func (ts *TaskService) CreateBatchUploadTask(userID uint64, req dto.BatchUploadR
 	}
 	err = ts.taskRepo.CreateUploadTask(task)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("创建上传任务失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("创建上传任务失败: %s", err))
 	}
 
 	records := make([]*model.UploadFileRecord, 0, len(req.Files))
@@ -103,7 +103,7 @@ func (ts *TaskService) CreateBatchUploadTask(userID uint64, req dto.BatchUploadR
 	}
 	err = ts.taskRepo.BatchCreateFileRecords(records)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("批量创建文件记录失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("批量创建文件记录失败: %s", err))
 	}
 
 	return &dto.BatchUploadResponse{
@@ -115,18 +115,18 @@ func (ts *TaskService) CreateBatchUploadTask(userID uint64, req dto.BatchUploadR
 func (ts *TaskService) UploadTaskFile(userID uint64, taskID string, fileIndex int, fileHeader *multipart.FileHeader) error {
 	task, err := ts.taskRepo.GetUploadTask(userID, taskID)
 	if err != nil {
-		return NotFound(fmt.Sprintf("任务不存在: %s", err))
+		return util.NotFound(fmt.Sprintf("任务不存在: %s", err))
 	}
 	if task.Status != model.UploadTaskStatusProcessing {
-		return BadRequest("任务已结束，无法上传")
+		return util.BadRequest("任务已结束，无法上传")
 	}
 
 	record, err := ts.taskRepo.GetFileRecordByTaskAndIndex(taskID, fileIndex)
 	if err != nil {
-		return NotFound(fmt.Sprintf("文件记录不存在: %s", err))
+		return util.NotFound(fmt.Sprintf("文件记录不存在: %s", err))
 	}
 	if record.Status != model.FileStatusWaiting {
-		return BadRequest("该文件已上传，请勿重复上传")
+		return util.BadRequest("该文件已上传，请勿重复上传")
 	}
 
 	targetParentID, err := ts.folderService.FindOrCreateFolder(userID, task.ParentID, record.RelativePath)
@@ -207,7 +207,7 @@ func (ts *TaskService) UploadTaskFile(userID uint64, taskID string, fileIndex in
 		UserFileID: userFile.ID,
 	})
 	if err != nil {
-		return Internal(fmt.Sprintf("更新文件记录失败: %s", err))
+		return util.Internal(fmt.Sprintf("更新文件记录失败: %s", err))
 	}
 
 	ts.syncTaskProgress(taskID)
@@ -265,12 +265,12 @@ func (ts *TaskService) syncTaskProgress(taskID string) {
 func (ts *TaskService) GetTaskProgress(userID uint64, taskID string) (*dto.TaskProgressResponse, error) {
 	task, err := ts.taskRepo.GetUploadTask(userID, taskID)
 	if err != nil {
-		return nil, NotFound(fmt.Sprintf("任务不存在: %s", err))
+		return nil, util.NotFound(fmt.Sprintf("任务不存在: %s", err))
 	}
 
 	records, err := ts.taskRepo.GetFileRecordsByTaskID(taskID)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("获取文件记录失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("获取文件记录失败: %s", err))
 	}
 
 	files := make([]dto.FileProgressItem, 0, len(records))

@@ -24,28 +24,28 @@ func NewUserService(userRepo *repository.UserRepo, jwtManger *util.JWTManager) *
 func (s *UserService) Register(email, username, password string) (*dto.RegisterResponse, error) {
 	_, err := s.userRepo.GetByEmail(email)
 	if err == nil {
-		return nil, Conflict("邮箱地址已存在")
+		return nil, util.Conflict("邮箱地址已存在")
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, Internal(fmt.Sprintf("检查邮箱是否已存在失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("检查邮箱是否已存在失败: %s", err))
 	}
 
 	_, err = s.userRepo.GetByUserName(username)
 	if err == nil {
-		return nil, Conflict("用户名已存在")
+		return nil, util.Conflict("用户名已存在")
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, Internal(fmt.Sprintf("检查用户名是否已存在失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("检查用户名是否已存在失败: %s", err))
 	}
 
 	err = util.ValidatePassword(password)
 	if err != nil {
-		return nil, BadRequest(fmt.Sprintf("检验用户密码失败: %s", err))
+		return nil, util.BadRequest(fmt.Sprintf("检验用户密码失败: %s", err))
 	}
 
 	hashPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("密码加密失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("密码加密失败: %s", err))
 	}
 
 	user := &model.User{
@@ -56,7 +56,7 @@ func (s *UserService) Register(email, username, password string) (*dto.RegisterR
 
 	err = s.userRepo.Create(user)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("用户创建失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("用户创建失败: %s", err))
 	}
 
 	return &dto.RegisterResponse{
@@ -69,23 +69,23 @@ func (s *UserService) Register(email, username, password string) (*dto.RegisterR
 func (s *UserService) Login(email, password string) (*dto.LoginResponse, error) {
 	user, err := s.userRepo.GetByEmail(email)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, NotFound("用户不存在")
+		return nil, util.NotFound("用户不存在")
 	}
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("查询用户失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("查询用户失败: %s", err))
 	}
 	if user.Status == 1 {
-		return nil, Forbidden("用户已被禁用")
+		return nil, util.Forbidden("用户已被禁用")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password_Hash), []byte(password)); err != nil {
-		return nil, Unauthorized("密码错误")
+		return nil, util.Unauthorized("密码错误")
 	}
 
 	// JWT 生成 token
 	token, err := s.jwtManager.GenerateToken(fmt.Sprintf("%d", user.ID), user.Username, user.Email)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("JWT 生成失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("JWT 生成失败: %s", err))
 	}
 
 	return &dto.LoginResponse{
@@ -98,10 +98,10 @@ func (s *UserService) Login(email, password string) (*dto.LoginResponse, error) 
 func (s *UserService) GetUserInfo(email string) (*dto.UserInfoGetResponse, error) {
 	user, err := s.userRepo.GetByEmail(email)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, NotFound("用户不存在")
+		return nil, util.NotFound("用户不存在")
 	}
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("查询用户失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("查询用户失败: %s", err))
 	}
 
 	return &dto.UserInfoGetResponse{
@@ -123,15 +123,15 @@ func (s *UserService) UpdateUserInfo(userID uint64, username, avatarUrl *string)
 	}
 
 	if len(updates) == 0 {
-		return nil, BadRequest("没有更新数据")
+		return nil, util.BadRequest("没有更新数据")
 	}
 
 	user, err := s.userRepo.UserInfoUpdate(userID, updates)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, NotFound("用户不存在")
+			return nil, util.NotFound("用户不存在")
 		}
-		return nil, Internal(fmt.Sprintf("更新用户信息失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("更新用户信息失败: %s", err))
 	}
 
 	return &dto.UserInfoUpdateResponse{
@@ -145,9 +145,9 @@ func (s *UserService) GetUserSpace(userID uint64) (*dto.UserSpaceResponse, error
 	user, err := s.userRepo.GetUserByID(userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, NotFound("用户不存在")
+			return nil, util.NotFound("用户不存在")
 		}
-		return nil, Internal(fmt.Sprintf("查询用户失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("查询用户失败: %s", err))
 	}
 
 	return &dto.UserSpaceResponse{

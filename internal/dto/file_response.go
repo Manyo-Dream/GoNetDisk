@@ -13,7 +13,7 @@ type FileUploadResponse struct {
 	FilePath   string `json:"file_path"`
 }
 
-type FileDownloadMeta struct {
+type FileDownloadResponse struct {
 	FileName    string `json:"file_name"`
 	StorageType string `json:"storage_type"`
 	FileExt     string `json:"file_ext"`

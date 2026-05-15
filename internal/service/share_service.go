@@ -12,6 +12,7 @@ import (
 	"github.com/manyodream/gonetdisk/internal/dto"
 	"github.com/manyodream/gonetdisk/internal/model"
 	"github.com/manyodream/gonetdisk/internal/repository"
+	"github.com/manyodream/gonetdisk/internal/util"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
@@ -37,10 +38,10 @@ func NewShareService(shareRepo *repository.ShareRepo, fileRepo *repository.FileR
 func (s *ShareService) CreateShare(userID, userFileID uint64, code string, expireDays int) (*dto.ShareCreateResponse, error) {
 	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
 	if err != nil {
-		return nil, NotFound(fmt.Sprintf("文件或文件夹不存在: %s", err))
+		return nil, util.NotFound(fmt.Sprintf("文件或文件夹不存在: %s", err))
 	}
 	if userFile.DeletedAt.Valid {
-		return nil, BadRequest("回收站中的文件无法创建分享")
+		return nil, util.BadRequest("回收站中的文件无法创建分享")
 	}
 
 	var expireAt *time.Time
@@ -61,7 +62,7 @@ func (s *ShareService) CreateShare(userID, userFileID uint64, code string, expir
 
 	err = s.shareRepo.CreateShare(share)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("创建分享失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("创建分享失败: %s", err))
 	}
 
 	return &dto.ShareCreateResponse{
@@ -75,7 +76,7 @@ func (s *ShareService) CreateShare(userID, userFileID uint64, code string, expir
 func (s *ShareService) GetUserShareList(userID uint64, page, pageSize int) (*dto.ShareListResponse, error) {
 	shares, total, err := s.shareRepo.GetSharesByUserID(userID, page, pageSize)
 	if err != nil {
-		return nil, Internal(fmt.Sprintf("获取分享列表失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("获取分享列表失败: %s", err))
 	}
 
 	items := make([]dto.ShareItem, 0, len(shares))
@@ -106,20 +107,20 @@ func (s *ShareService) GetUserShareList(userID uint64, page, pageSize int) (*dto
 func (s *ShareService) GetShareInfo(shareCode, code string) (*dto.ShareInfoResponse, error) {
 	share, err := s.shareRepo.GetShareByCode(shareCode)
 	if err != nil {
-		return nil, NotFound(err.Error())
+		return nil, util.NotFound(err.Error())
 	}
 
 	if share.ExpireAt != nil && time.Now().After(*share.ExpireAt) {
-		return nil, NotFound("分享已过期")
+		return nil, util.NotFound("分享已过期")
 	}
 
 	if share.Code != "" && share.Code != code {
-		return nil, Forbidden("提取码错误")
+		return nil, util.Forbidden("提取码错误")
 	}
 
 	userFile, err := s.fileRepo.GetUserFileByIDAny(share.UserID, share.UserFileID)
 	if err != nil {
-		return nil, NotFound("分享的文件已被删除")
+		return nil, util.NotFound("分享的文件已被删除")
 	}
 
 	_ = s.shareRepo.IncrViewCount(shareCode)
@@ -138,34 +139,34 @@ func (s *ShareService) GetShareInfo(shareCode, code string) (*dto.ShareInfoRespo
 func (s *ShareService) RevokeShare(userID uint64, shareCode string) error {
 	err := s.shareRepo.DeleteShare(userID, shareCode)
 	if err != nil {
-		return NotFound(fmt.Sprintf("取消分享失败: %s", err))
+		return util.NotFound(fmt.Sprintf("取消分享失败: %s", err))
 	}
 	return nil
 }
 
-func (s *ShareService) DownloadSharedFile(shareCode, code string) (*dto.FileDownloadMeta, io.ReadCloser, error) {
+func (s *ShareService) DownloadSharedFile(shareCode, code string) (*dto.FileDownloadResponse, io.ReadCloser, error) {
 	share, err := s.shareRepo.GetShareByCode(shareCode)
 	if err != nil {
-		return nil, nil, NotFound(err.Error())
+		return nil, nil, util.NotFound(err.Error())
 	}
 
 	if share.ExpireAt != nil && time.Now().After(*share.ExpireAt) {
-		return nil, nil, NotFound("分享已过期")
+		return nil, nil, util.NotFound("分享已过期")
 	}
 
 	if share.Code != "" && share.Code != code {
-		return nil, nil, Forbidden("提取码错误")
+		return nil, nil, util.Forbidden("提取码错误")
 	}
 
 	userFile, phyFile, err := s.fileRepo.GetFileByDownloadReq(share.UserID, share.UserFileID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil, NotFound("文件不存在")
+		return nil, nil, util.NotFound("文件不存在")
 	} else if err != nil {
-		return nil, nil, Internal(fmt.Sprintf("查询文件失败: %s", err))
+		return nil, nil, util.Internal(fmt.Sprintf("查询文件失败: %s", err))
 	}
 
 	if phyFile.FilePath == "" {
-		return nil, nil, NotFound("文件路径为空")
+		return nil, nil, util.NotFound("文件路径为空")
 	}
 
 	obj, err := s.minioClient.GetObject(
@@ -175,10 +176,10 @@ func (s *ShareService) DownloadSharedFile(shareCode, code string) (*dto.FileDown
 		minio.GetObjectOptions{},
 	)
 	if err != nil {
-		return nil, nil, Internal(fmt.Sprintf("从 MinIO 读取文件失败: %s", err))
+		return nil, nil, util.Internal(fmt.Sprintf("从 MinIO 读取文件失败: %s", err))
 	}
 
-	return &dto.FileDownloadMeta{
+	return &dto.FileDownloadResponse{
 		FileName:    userFile.FileName,
 		StorageType: phyFile.StorageType,
 		FileExt:     userFile.FileExt,
