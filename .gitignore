@@ -52,7 +52,8 @@ go/pkg/mod/
 
 docker/mysql_data
 docker/minio_data/
-docker/minio_config
+docker/minio_config/
+docker/redis_data/
 .opencode
 ai-docs
 configs/config.yaml

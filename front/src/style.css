@@ -1,0 +1,310 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+:root {
+  --bg-root: #f4f5f7;
+  --bg-surface: #ffffff;
+  --bg-raised: #f8f9fb;
+  --bg-hover: #e9ecf1;
+  --bg-active: #2563eb;
+
+  --border: #d4d7dc;
+  --border-faint: #e5e7eb;
+
+  --text: #111318;
+  --text-dim: #3d4045;
+  --text-active: #ffffff;
+  --text-muted: #9ca3af;
+
+  --accent: #2563eb;
+  --accent-dim: #dbeafe;
+  --green: #16a34a;
+  --green-dim: #dcfce7;
+  --red: #dc2626;
+  --red-dim: #fee2e2;
+  --cyan: #0891b2;
+  --cyan-dim: #cffafe;
+  --yellow: #ca8a04;
+  --yellow-dim: #fefce8;
+  --purple: #9333ea;
+  --purple-dim: #f3e8ff;
+  --orange: #ea580c;
+  --orange-dim: #fff7ed;
+  --teal: #0d9488;
+  --teal-dim: #ccfbf1;
+
+  --font: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs: 0.875rem;
+  --fs-lg: 1rem;
+  --fs-xl: 1.125rem;
+  --fs-2xl: 1.5rem;
+
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-6: 24px;
+  --gap-8: 32px;
+}
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  background: var(--bg-root);
+  color: var(--text);
+  color-scheme: light;
+  font-family: var(--font);
+  font-size: var(--fs);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-root);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+a {
+  color: var(--cyan);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--accent);
+}
+
+button {
+  font-family: var(--font);
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+input, select {
+  font-family: var(--font);
+  font-size: var(--fs);
+  color: var(--text);
+  background: var(--bg-root);
+  border: 1px solid var(--border);
+  padding: var(--gap-2) var(--gap-3);
+  outline: none;
+}
+input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+input:focus, select:focus {
+  border-color: var(--accent);
+}
+input:focus:not(:focus-visible), select:focus:not(:focus-visible) {
+  outline: none;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th, td {
+  text-align: left;
+  padding: var(--gap-2) var(--gap-3);
+  border-bottom: 1px solid var(--border-faint);
+}
+
+th {
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+  background: var(--bg-raised);
+  z-index: 1;
+}
+
+tr:hover td {
+  background: var(--bg-hover);
+}
+
+/* ====== Utility ====== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-2);
+  padding: var(--gap-2) var(--gap-4);
+  border: 1px solid var(--border);
+  font-weight: 500;
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: none;
+}
+.btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-dim);
+}
+.btn:active {
+  background: var(--bg-active);
+  color: var(--text-active);
+  border-color: var(--bg-active);
+}
+.btn-primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-primary:hover {
+  background: var(--accent-dim);
+}
+.btn-primary:active {
+  background: var(--accent);
+  color: var(--text-active);
+}
+.btn-danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+.btn-danger:hover {
+  background: var(--red-dim);
+}
+.btn-sm {
+  padding: var(--gap-1) var(--gap-3);
+  font-size: var(--fs-xs);
+}
+.btn-icon {
+  padding: var(--gap-1);
+  border-color: transparent;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px var(--gap-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border: 1px solid;
+}
+.badge-green { color: var(--green); border-color: var(--green-dim); }
+.badge-red   { color: var(--red);   border-color: var(--red-dim); }
+.badge-accent { color: var(--accent); border-color: var(--accent-dim); }
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gap-8);
+  color: var(--text-muted);
+  gap: var(--gap-3);
+  user-select: none;
+}
+.empty-state .icon {
+  font-size: 3rem;
+  opacity: 0.3;
+}
+
+/* ====== Progress Bar (wget style) ====== */
+.progress-bar {
+  height: 6px;
+  background: var(--bg-root);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.progress-bar .fill {
+  height: 100%;
+  background: var(--accent);
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 3px,
+    var(--accent-dim) 3px,
+    var(--accent-dim) 4px
+  );
+  transition: width 0.1s linear;
+}
+
+/* ====== Fade transition ====== */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.12s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor-blink {
+    animation: none;
+  }
+  .fade-enter-active,
+  .fade-leave-active {
+    transition: none;
+  }
+  .progress-bar .fill {
+    transition: none;
+  }
+}
+
+/* ====== File type icon colors ====== */
+.fi-dir  { color: var(--accent); }
+.fi-img  { color: var(--purple); }
+.fi-vid  { color: var(--orange); }
+.fi-aud  { color: var(--teal); }
+.fi-zip  { color: var(--yellow); }
+.fi-pdf  { color: var(--red); }
+.fi-doc  { color: var(--accent); }
+.fi-txt  { color: var(--green); }
+.fi-code { color: var(--purple); }
+.fi-other { color: var(--text-muted); }
+
+/* ====== Checkbox (terminal style) ====== */
+input[type="checkbox"].cb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+input[type="checkbox"].cb:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type="checkbox"].cb:checked::after {
+  content: 'x';
+  color: var(--text-active);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
