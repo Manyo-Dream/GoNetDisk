@@ -9,12 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"GoNetDisk/configs"
+	"GoNetDisk/internal/api"
+	"GoNetDisk/internal/model"
+	"GoNetDisk/internal/repository"
+	"GoNetDisk/internal/util"
+
 	"github.com/google/uuid"
-	"github.com/manyodream/gonetdisk/configs"
-	"github.com/manyodream/gonetdisk/internal/dto"
-	"github.com/manyodream/gonetdisk/internal/model"
-	"github.com/manyodream/gonetdisk/internal/repository"
-	"github.com/manyodream/gonetdisk/internal/util"
 	"github.com/minio/minio-go/v7"
 	"gorm.io/gorm"
 )
@@ -43,7 +44,7 @@ func NewTaskService(userRepo *repository.UserRepo, fileRepo *repository.FileRepo
 	}
 }
 
-func (ts *TaskService) CreateBatchUploadTask(userID uint64, req dto.BatchUploadRequest) (*dto.BatchUploadResponse, error) {
+func (ts *TaskService) CreateBatchUploadTask(userID uint64, req api.BatchUploadRequest) (*api.BatchUploadResponse, error) {
 	if len(req.Files) == 0 {
 		return nil, util.BadRequest("任务文件为空")
 	}
@@ -106,7 +107,7 @@ func (ts *TaskService) CreateBatchUploadTask(userID uint64, req dto.BatchUploadR
 		return nil, util.Internal(fmt.Sprintf("批量创建文件记录失败: %s", err))
 	}
 
-	return &dto.BatchUploadResponse{
+	return &api.BatchUploadResponse{
 		TaskID:    taskID,
 		FileCount: len(req.Files),
 	}, nil
@@ -262,7 +263,7 @@ func (ts *TaskService) syncTaskProgress(taskID string) {
 	_ = ts.taskRepo.UpdateUploadTask(taskID, updates)
 }
 
-func (ts *TaskService) GetTaskProgress(userID uint64, taskID string) (*dto.TaskProgressResponse, error) {
+func (ts *TaskService) GetTaskProgress(userID uint64, taskID string) (*api.TaskProgressResponse, error) {
 	task, err := ts.taskRepo.GetUploadTask(userID, taskID)
 	if err != nil {
 		return nil, util.NotFound(fmt.Sprintf("任务不存在: %s", err))
@@ -273,9 +274,9 @@ func (ts *TaskService) GetTaskProgress(userID uint64, taskID string) (*dto.TaskP
 		return nil, util.Internal(fmt.Sprintf("获取文件记录失败: %s", err))
 	}
 
-	files := make([]dto.FileProgressItem, 0, len(records))
+	files := make([]api.FileProgressItem, 0, len(records))
 	for _, r := range records {
-		files = append(files, dto.FileProgressItem{
+		files = append(files, api.FileProgressItem{
 			Index:      r.FileIndex,
 			FileName:   r.FileName,
 			Status:     r.Status,
@@ -289,7 +290,7 @@ func (ts *TaskService) GetTaskProgress(userID uint64, taskID string) (*dto.TaskP
 		progressPct = (task.SuccessCount + task.FailCount) * 100 / task.FileCount
 	}
 
-	return &dto.TaskProgressResponse{
+	return &api.TaskProgressResponse{
 		TaskID:       task.TaskID,
 		Status:       task.Status,
 		FileCount:    task.FileCount,

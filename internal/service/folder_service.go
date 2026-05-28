@@ -8,16 +8,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/manyodream/gonetdisk/configs"
-	"github.com/manyodream/gonetdisk/internal/dto"
-	"github.com/manyodream/gonetdisk/internal/model"
-	"github.com/manyodream/gonetdisk/internal/repository"
-	"github.com/manyodream/gonetdisk/internal/util"
+	"GoNetDisk/configs"
+	"GoNetDisk/internal/api"
+	"GoNetDisk/internal/model"
+	"GoNetDisk/internal/repository"
+	"GoNetDisk/internal/util"
+
 	"github.com/minio/minio-go/v7"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
 type FolderService struct {
+	redis       *redis.Client
 	userRepo    *repository.UserRepo
 	fileRepo    *repository.FileRepo
 	jwtManger   *util.JWTManager
@@ -25,11 +28,25 @@ type FolderService struct {
 	config      *configs.Config
 }
 
-func NewFolderService(userRepo *repository.UserRepo, fileRepo *repository.FileRepo, jwtManger *util.JWTManager, minioClient *minio.Client, config *configs.Config) *FolderService {
-	return &FolderService{userRepo: userRepo, fileRepo: fileRepo, jwtManger: jwtManger, minioClient: minioClient, config: config}
+func NewFolderService(
+	redis *redis.Client,
+	userRepo *repository.UserRepo,
+	fileRepo *repository.FileRepo,
+	jwtManger *util.JWTManager,
+	minioClient *minio.Client,
+	config *configs.Config,
+) *FolderService {
+	return &FolderService{
+		redis:       redis,
+		userRepo:    userRepo,
+		fileRepo:    fileRepo,
+		jwtManger:   jwtManger,
+		minioClient: minioClient,
+		config:      config,
+	}
 }
 
-func (fds *FolderService) CreateFolder(email, folderName string, parentID uint64) (*dto.FolderResponse, error) {
+func (fds *FolderService) CreateFolder(email, folderName string, parentID uint64) (*api.FolderResponse, error) {
 	// 参数校验
 	if err := util.ValidateName(folderName); err != nil {
 		return nil, util.BadRequest(fmt.Sprintf("校验FolderName失败: %s", err.Error()))
@@ -83,14 +100,14 @@ func (fds *FolderService) CreateFolder(email, folderName string, parentID uint64
 	}
 
 	// 返回响应
-	return &dto.FolderResponse{
+	return &api.FolderResponse{
 		FolderName: userFolder.FileName,
 		ParentID:   userFolder.ParentID,
 		FolderID:   userFolder.ID,
 	}, nil
 }
 
-func (fds *FolderService) MoveFolderToTrash(userID, userFileID uint64) (*dto.TrashDeleteResponse, error) {
+func (fds *FolderService) MoveFolderToTrash(userID, userFileID uint64) (*api.TrashDeleteResponse, error) {
 	userFile, err := fds.fileRepo.GetUserFileByIDAny(userID, userFileID)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("获取用户文件夹失败: %s", err))
@@ -107,10 +124,10 @@ func (fds *FolderService) MoveFolderToTrash(userID, userFileID uint64) (*dto.Tra
 		return nil, err
 	}
 
-	return &dto.TrashDeleteResponse{Message: "文件夹成功移入回收站"}, nil
+	return &api.TrashDeleteResponse{Message: "文件夹成功移入回收站"}, nil
 }
 
-func (fds *FolderService) RemoveFolder(userID, folderID uint64) (*dto.TrashDeleteResponse, error) {
+func (fds *FolderService) RemoveFolder(userID, folderID uint64) (*api.TrashDeleteResponse, error) {
 	userFolder, err := fds.fileRepo.GetUserFileByIDAny(userID, folderID)
 	if err != nil {
 		return nil, util.NotFound(fmt.Sprintf("文件夹不存在: %s", err))
@@ -124,7 +141,7 @@ func (fds *FolderService) RemoveFolder(userID, folderID uint64) (*dto.TrashDelet
 		return nil, err
 	}
 
-	return &dto.TrashDeleteResponse{Message: "文件夹已彻底删除"}, nil
+	return &api.TrashDeleteResponse{Message: "文件夹已彻底删除"}, nil
 }
 
 func (fds *FolderService) hardDeleteFolderRecursive(userID, folderID uint64) error {
@@ -163,6 +180,12 @@ func (fds *FolderService) hardDeleteFolderRecursive(userID, folderID uint64) err
 					if err != nil {
 						return util.Internal(fmt.Sprintf("从 MinIO 删除文件失败: %s", err))
 					}
+
+					_, err := fds.redis.Del(context.Background(), "hash:"+phyFile.FileHash).Result()
+					if err != nil {
+						return util.Internal(fmt.Sprintf("从 Redis 删除缓存失败: %s", err))
+					}
+
 					err = fds.fileRepo.DeletePhysicalFile(phyFile.ID)
 					if err != nil {
 						return util.Internal(fmt.Sprintf("删除物理文件记录失败: %s", err))
@@ -192,7 +215,7 @@ func (fds *FolderService) hardDeleteFolderRecursive(userID, folderID uint64) err
 	return nil
 }
 
-func (fds *FolderService) RenameFolder(userID, userFolderID uint64, newFolderName string) (*dto.FolderRenameResponse, error) {
+func (fds *FolderService) RenameFolder(userID, userFolderID uint64, newFolderName string) (*api.FolderRenameResponse, error) {
 	// 验证文件夹名
 	if err := util.ValidateName(newFolderName); err != nil {
 		return nil, util.BadRequest(fmt.Sprintf("校验FolderName失败: %s", err.Error()))
@@ -224,13 +247,13 @@ func (fds *FolderService) RenameFolder(userID, userFolderID uint64, newFolderNam
 	}
 
 	// 返回响应
-	return &dto.FolderRenameResponse{
+	return &api.FolderRenameResponse{
 		UserFolderID: userFolder.ID,
 		FolderName:   finalName,
 	}, nil
 }
 
-func (fds *FolderService) MoveFolder(userID, userFolderID, targetParenID uint64) (*dto.FolderMoveResponse, error) {
+func (fds *FolderService) MoveFolder(userID, userFolderID, targetParenID uint64) (*api.FolderMoveResponse, error) {
 	userFolder, err := fds.fileRepo.GetUserFolderByID(userID, userFolderID)
 	if err != nil {
 		return nil, util.NotFound(fmt.Sprintf("获取文件夹信息失败: %s", err.Error()))
@@ -284,7 +307,7 @@ func (fds *FolderService) MoveFolder(userID, userFolderID, targetParenID uint64)
 		return nil, util.Internal(fmt.Sprintf("更新子文件路径失败: %s", err.Error()))
 	}
 
-	return &dto.FolderMoveResponse{
+	return &api.FolderMoveResponse{
 		UserFolderID: userFolder.ID,
 		FolderName:   finalName,
 		NewParentID:  targetParenID,
@@ -408,7 +431,7 @@ func (fds *FolderService) softDeleteFolderRecursive(userID, folderID uint64) err
 	return nil
 }
 
-func (fds *FolderService) RestoreFolder(userID, folderID uint64) (*dto.TrashRestoreResponse, error) {
+func (fds *FolderService) RestoreFolder(userID, folderID uint64) (*api.TrashRestoreResponse, error) {
 	userFolder, err := fds.fileRepo.GetUserFileByIDAny(userID, folderID)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("查询用户文件夹失败: %s", err))
@@ -454,5 +477,5 @@ func (fds *FolderService) RestoreFolder(userID, folderID uint64) (*dto.TrashRest
 		}
 	}
 
-	return &dto.TrashRestoreResponse{Message: "文件夹成功还原"}, nil
+	return &api.TrashRestoreResponse{Message: "文件夹成功还原"}, nil
 }

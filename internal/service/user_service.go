@@ -1,13 +1,17 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
-	"github.com/manyodream/gonetdisk/internal/dto"
-	"github.com/manyodream/gonetdisk/internal/model"
-	"github.com/manyodream/gonetdisk/internal/repository"
-	"github.com/manyodream/gonetdisk/internal/util"
+	"GoNetDisk/internal/api"
+	"GoNetDisk/internal/model"
+	"GoNetDisk/internal/repository"
+	"GoNetDisk/internal/util"
+
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -15,13 +19,14 @@ import (
 type UserService struct {
 	userRepo   *repository.UserRepo
 	jwtManager *util.JWTManager
+	rdb        *redis.Client
 }
 
-func NewUserService(userRepo *repository.UserRepo, jwtManger *util.JWTManager) *UserService {
-	return &UserService{userRepo: userRepo, jwtManager: jwtManger}
+func NewUserService(userRepo *repository.UserRepo, jwtManger *util.JWTManager, rdb *redis.Client) *UserService {
+	return &UserService{userRepo: userRepo, jwtManager: jwtManger, rdb: rdb}
 }
 
-func (s *UserService) Register(email, username, password string) (*dto.RegisterResponse, error) {
+func (s *UserService) Register(email, username, password string) (*api.RegisterResponse, error) {
 	_, err := s.userRepo.GetByEmail(email)
 	if err == nil {
 		return nil, util.Conflict("邮箱地址已存在")
@@ -59,14 +64,14 @@ func (s *UserService) Register(email, username, password string) (*dto.RegisterR
 		return nil, util.Internal(fmt.Sprintf("用户创建失败: %s", err))
 	}
 
-	return &dto.RegisterResponse{
+	return &api.RegisterResponse{
 		Username: user.Username,
 		Email:    user.Email,
 		Status:   user.Status,
 	}, nil
 }
 
-func (s *UserService) Login(email, password string) (*dto.LoginResponse, error) {
+func (s *UserService) Login(email, password string) (*api.LoginResponse, error) {
 	user, err := s.userRepo.GetByEmail(email)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, util.NotFound("用户不存在")
@@ -83,19 +88,69 @@ func (s *UserService) Login(email, password string) (*dto.LoginResponse, error) 
 	}
 
 	// JWT 生成 token
-	token, err := s.jwtManager.GenerateToken(fmt.Sprintf("%d", user.ID), user.Username, user.Email)
+	userID := fmt.Sprintf("%d", user.ID)
+	accessToken, err := s.jwtManager.GenerateAccessToken(fmt.Sprintf("%d", user.ID), user.Username, user.Email)
 	if err != nil {
-		return nil, util.Internal(fmt.Sprintf("JWT 生成失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("生成 access token 失败: %s", err))
 	}
 
-	return &dto.LoginResponse{
-		Email:    user.Email,
-		Token:    token,
-		Username: user.Username,
+	refreshToken, err := s.jwtManager.GenerateRefreshToken(userID, user.Username, user.Email)
+	if err != nil {
+		return nil, util.Internal(fmt.Sprintf("生成 refresh token 失败: %s", err))
+	}
+
+	// 将 refresh token 写入 Redis
+	ctx := context.Background()
+	key := fmt.Sprintf("refresh_token:%s", userID)
+	duration := time.Duration(s.jwtManager.GetRefreshTokenDuration())
+	if err := s.rdb.Set(ctx, key, refreshToken, duration).Err(); err != nil {
+		return nil, util.Internal(fmt.Sprintf("存储 refresh token 失败: %s", err))
+	}
+
+	return &api.LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    s.jwtManager.GetAccessExpiresSeconds(),
+		Username:     user.Username,
+		Email:        user.Email,
 	}, nil
 }
 
-func (s *UserService) GetUserInfo(email string) (*dto.UserInfoGetResponse, error) {
+func (s *UserService) RefreshToken(refreshToken string) (*api.RefreshResponse, error) {
+	claims, err := s.jwtManager.VerifyToken(refreshToken)
+	if err != nil {
+		return nil, util.Unauthorized("refresh token 无效或已过期")
+	}
+
+	userID := claims.RegisteredClaims.Subject
+	ctx := context.Background()
+	key := fmt.Sprintf("refresh_token:%s", userID)
+
+	storeapiken, err := s.rdb.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, util.Unauthorized("refresh token 已失效，请重新登录")
+	}
+	if err != nil {
+		return nil, util.Internal(fmt.Sprintf("查询 refresh token 失败: %s", err))
+	}
+	if storeapiken != refreshToken {
+		return nil, util.Unauthorized("refresh token 不匹配，请重新登录")
+	}
+
+	accessToken, err := s.jwtManager.GenerateAccessToken(userID, claims.Username, claims.Email)
+	if err != nil {
+		return nil, util.Internal(fmt.Sprintf("生成 access token 失败 %s", err))
+	}
+
+	return &api.RefreshResponse{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+		ExpiresIn:   s.jwtManager.GetAccessExpiresSeconds(),
+	}, nil
+}
+
+func (s *UserService) GetUserInfo(email string) (*api.UserInfoGetResponse, error) {
 	user, err := s.userRepo.GetByEmail(email)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, util.NotFound("用户不存在")
@@ -104,14 +159,14 @@ func (s *UserService) GetUserInfo(email string) (*dto.UserInfoGetResponse, error
 		return nil, util.Internal(fmt.Sprintf("查询用户失败: %s", err))
 	}
 
-	return &dto.UserInfoGetResponse{
+	return &api.UserInfoGetResponse{
 		Email:     user.Email,
 		Username:  user.Username,
 		AvatarUrl: user.Avatar_Url,
 	}, nil
 }
 
-func (s *UserService) UpdateUserInfo(userID uint64, username, avatarUrl *string) (*dto.UserInfoUpdateResponse, error) {
+func (s *UserService) UpdateUserInfo(userID uint64, username, avatarUrl *string) (*api.UserInfoUpdateResponse, error) {
 	updates := make(map[string]any)
 
 	if username != nil {
@@ -134,14 +189,14 @@ func (s *UserService) UpdateUserInfo(userID uint64, username, avatarUrl *string)
 		return nil, util.Internal(fmt.Sprintf("更新用户信息失败: %s", err))
 	}
 
-	return &dto.UserInfoUpdateResponse{
+	return &api.UserInfoUpdateResponse{
 		Email:     user.Email,
 		Username:  user.Username,
 		AvatarUrl: user.Avatar_Url,
 	}, nil
 }
 
-func (s *UserService) GetUserSpace(userID uint64) (*dto.UserSpaceResponse, error) {
+func (s *UserService) GetUserSpace(userID uint64) (*api.UserSpaceResponse, error) {
 	user, err := s.userRepo.GetUserByID(userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -150,7 +205,7 @@ func (s *UserService) GetUserSpace(userID uint64) (*dto.UserSpaceResponse, error
 		return nil, util.Internal(fmt.Sprintf("查询用户失败: %s", err))
 	}
 
-	return &dto.UserSpaceResponse{
+	return &api.UserSpaceResponse{
 		UsedSpace:  user.Used_Space,
 		TotalSpace: user.Total_Space,
 	}, nil

@@ -8,10 +8,11 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"GoNetDisk/internal/api"
+	"GoNetDisk/internal/middleware"
+	"GoNetDisk/internal/service"
+
 	"github.com/gin-gonic/gin"
-	"github.com/manyodream/gonetdisk/internal/dto"
-	"github.com/manyodream/gonetdisk/internal/middleware"
-	"github.com/manyodream/gonetdisk/internal/service"
 )
 
 type FileController struct {
@@ -24,7 +25,7 @@ func NewFileController(fileService *service.FileService) *FileController {
 
 func (c *FileController) UploadFile(ctx *gin.Context) {
 	// 获取请求参数 ParentID
-	var req dto.FileUploadRequest
+	var req api.FileUploadRequest
 
 	if err := ctx.ShouldBind(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -62,7 +63,7 @@ func (c *FileController) UploadFile(ctx *gin.Context) {
 }
 
 func (c *FileController) DownloadFile(ctx *gin.Context) {
-	var req dto.FileDownloadRequest
+	var req api.FileDownloadRequest
 
 	if err := ctx.ShouldBindUri(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -104,7 +105,7 @@ func (c *FileController) DownloadFile(ctx *gin.Context) {
 }
 
 func (c *FileController) ReturnFileList(ctx *gin.Context) {
-	var req dto.FileListRequest
+	var req api.FileListRequest
 
 	if err := ctx.ShouldBindQuery(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -239,7 +240,7 @@ func (c *FileController) RestoreFile(ctx *gin.Context) {
 }
 
 func (c *FileController) ReturnTrashList(ctx *gin.Context) {
-	var req dto.TrashListRequest
+	var req api.TrashListRequest
 
 	if err := ctx.ShouldBindQuery(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -287,7 +288,7 @@ func (c *FileController) ReturnTrashList(ctx *gin.Context) {
 }
 
 func (c *FileController) RenameFile(ctx *gin.Context) {
-	var req *dto.FileRenameRequest
+	var req *api.FileRenameRequest
 
 	if err := ctx.ShouldBind(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -352,7 +353,7 @@ func (c *FileController) RemoveFile(ctx *gin.Context) {
 }
 
 func (c *FileController) MoveFile(ctx *gin.Context) {
-	var req *dto.FileMoveRequest
+	var req *api.FileMoveRequest
 
 	if err := ctx.ShouldBind(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{

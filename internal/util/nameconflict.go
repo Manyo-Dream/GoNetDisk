@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/manyodream/gonetdisk/internal/model"
-	"github.com/manyodream/gonetdisk/internal/repository"
+	"GoNetDisk/internal/model"
+	"GoNetDisk/internal/repository"
 )
 
 func IsNameExistsInFolder(repo *repository.FileRepo, userID, parentID uint64, name string, excludeID uint64, isDir bool) bool {

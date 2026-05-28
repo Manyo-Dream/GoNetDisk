@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/manyodream/gonetdisk/internal/model"
+	"GoNetDisk/internal/model"
+
 	"gorm.io/gorm"
 )
 
@@ -76,6 +77,16 @@ func (r *FileRepo) GetUserFileByFolderName(userID, parentID uint64, folderName s
 
 	return &userfile, nil
 }
+
+func (r *FileRepo) GetUserFileByPhysicalID(userID, physicalID uint64) (*model.UserFile, error) {
+    var userFile model.UserFile
+    err := r.db.Where("user_id = ? AND physical_id = ?", userID, physicalID).First(&userFile).Error
+    if err != nil {
+        return nil, err
+    }
+    return &userFile, nil
+}
+
 
 func (r *FileRepo) GetParentFolderByParentID(userID, parentID uint64) (*model.UserFile, error) {
 	var userFolder model.UserFile
@@ -282,10 +293,16 @@ func (r *FileRepo) GetSpace(userid string) (uint64, error) {
 }
 
 func (r *FileRepo) IncrPhyFileRefCount(id uint64, delta int) error {
-	return r.db.Model(&model.PhysicalFile{}).
+	result := r.db.Model(&model.PhysicalFile{}).
 		Where("id = ?", id).
-		UpdateColumn("ref_count", gorm.Expr("COALESCE(ref_count, 0) + ?", delta)).
-		Error
+		UpdateColumn("ref_count", gorm.Expr("COALESCE(ref_count, 0) + ?", delta))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("物理文件记录不存在")
+	}
+	return nil
 }
 
 func (r *FileRepo) DecrPhyFileRefCount(id uint64, delta int) error {

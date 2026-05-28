@@ -1,7 +1,8 @@
 package repository
 
 import (
-	"github.com/manyodream/gonetdisk/internal/model"
+	"GoNetDisk/internal/model"
+
 	"gorm.io/gorm"
 )
 

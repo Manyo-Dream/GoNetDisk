@@ -3,26 +3,33 @@ server:
   host: "0.0.0.0"
   mode: release
 
+redis:
+  host: "redis"
+  port: 6379
+  password: ""
+  db: 0
+
 minio:
   endpoint: "minio:9000"
-  accesskey: "gonetdisk"
-  secretkey: "gonetdisk"
-  bucket: "gonetdisk"
+  accesskey: "GoNetDisk"
+  secretkey: "GoNetDisk"
+  bucket: "GoNetDisk"
   usessl: false
 
 database:
   host: "mysql"
   port: 3306
   user: "root"
-  password: "gonetdisk"
-  name: "gonetdisk"
+  password: "GoNetDisk"
+  name: "GoNetDisk"
   charset: "utf8mb4"
   parseTime: true
   loc: "Local"
 
 jwt:
   secret: "请修改为随机字符串"
-  expiresHours: 24
+  accessexpiresmin: 18
+  refreshexpireshour: 168
 
 upload:
   maxFileSizeMB: 100

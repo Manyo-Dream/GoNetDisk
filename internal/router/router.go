@@ -2,40 +2,46 @@ package router
 
 import (
 	"time"
+	"strings"
+
+	"GoNetDisk/configs"
+	"GoNetDisk/internal/controller"
+	"GoNetDisk/internal/middleware"
+	"GoNetDisk/internal/repository"
+	"GoNetDisk/internal/service"
+	"GoNetDisk/internal/util"
 
 	"github.com/gin-gonic/gin"
-	"github.com/manyodream/gonetdisk/configs"
-	"github.com/manyodream/gonetdisk/internal/controller"
-	"github.com/manyodream/gonetdisk/internal/middleware"
-	"github.com/manyodream/gonetdisk/internal/repository"
-	"github.com/manyodream/gonetdisk/internal/service"
-	"github.com/manyodream/gonetdisk/internal/util"
 	"github.com/minio/minio-go/v7"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
 
-func SetupRouter(db *gorm.DB, minioClient *minio.Client, jwtManager *util.JWTManager, config *configs.Config) *gin.Engine {
+func SetupRouter(db *gorm.DB, redis *redis.Client, minioClient *minio.Client, jwtManager *util.JWTManager, config *configs.Config) *gin.Engine {
 	r := gin.Default()
-	r.Use(middleware.CORSMiddleware())
 
 	userRepo := repository.NewUserRepo(db)
-	userService := service.NewUserService(userRepo, jwtManager)
+	userService := service.NewUserService(userRepo, jwtManager, redis)
 	userController := controller.NewUserController(userService)
 
 	fileRepo := repository.NewFileRepo(db)
-	fileService := service.NewFileService(minioClient, userRepo, fileRepo, jwtManager, config)
+	fileService := service.NewFileService(redis, minioClient, userRepo, fileRepo, jwtManager, config)
 	fileController := controller.NewFileController(fileService)
 
-	folderService := service.NewFolderService(userRepo, fileRepo, jwtManager, minioClient, config)
+	folderService := service.NewFolderService(redis, userRepo, fileRepo, jwtManager, minioClient, config)
 	folderController := controller.NewFolderController(folderService)
 
 	taskRepo := repository.NewTaskRepo(db)
 	taskService := service.NewTaskService(userRepo, fileRepo, taskRepo, fileService, folderService, minioClient, jwtManager, config)
 	taskController := controller.NewTaskController(taskService)
 
+	chunkRepo := repository.NewChunkRepo(db)
+	chunkService := service.NewChunkService(redis, minioClient, userRepo, fileRepo, chunkRepo, fileService, config)
+	chunkController := controller.NewChunkController(chunkService)
+
 	shareRepo := repository.NewShareRepo(db)
-	shareService := service.NewShareService(shareRepo, fileRepo, userRepo, minioClient, config)
+	shareService := service.NewShareService(shareRepo, fileRepo, userRepo, redis, minioClient, config)
 	shareController := controller.NewShareController(shareService)
 
 	limiter := middleware.NewIPRateLimiter(10 * time.Minute)
@@ -45,11 +51,14 @@ func SetupRouter(db *gorm.DB, minioClient *minio.Client, jwtManager *util.JWTMan
 		userHandler := v1.Group("/user")
 		{
 			userHandler.POST("/register",
-				limiter.RateLimit("register", rate.Every(15*time.Minute), 3),
+				limiter.RateLimit("register", rate.Every(5*time.Minute), 5),
 				userController.Register)
 			userHandler.POST("/login",
-				limiter.RateLimit("login", rate.Every(10*time.Minute), 3),
+				limiter.RateLimit("login", rate.Every(5*time.Minute), 5),
 				userController.Login)
+			userHandler.POST("/refresh",
+				limiter.RateLimit("refresh", rate.Every(time.Minute), 5),
+				userController.RefreshToken)
 		}
 		userHandler.Use(middleware.AuthMiddleware(jwtManager, userRepo))
 		{
@@ -62,6 +71,10 @@ func SetupRouter(db *gorm.DB, minioClient *minio.Client, jwtManager *util.JWTMan
 		fileHandler.Use(middleware.AuthMiddleware(jwtManager, userRepo))
 		{
 			fileHandler.POST("/upload", fileController.UploadFile)
+			fileHandler.POST("/chunk/init", chunkController.InitChunkUpload)
+			fileHandler.POST("/chunk/upload", chunkController.UploadChunk)
+			fileHandler.POST("/chunk/complete", chunkController.CompleteChunkUpload)
+			fileHandler.GET("/chunk/status", chunkController.GetChunkStatus)
 			fileHandler.GET("/download/:userfile_id", fileController.DownloadFile)
 			fileHandler.DELETE("/delete/:userfile_id", fileController.MoveFileToTrash)
 			fileHandler.DELETE("/remove/:userfile_id", fileController.RemoveFile)
@@ -108,9 +121,13 @@ func SetupRouter(db *gorm.DB, minioClient *minio.Client, jwtManager *util.JWTMan
 			shareHandler.DELETE("/:share_code", shareController.RevokeShare)
 		}
 	}
-	r.Static("/css", "./front/css")
-	r.Static("/js", "./front/js")
-	r.GET("/", func(ctx *gin.Context) { ctx.File("./front/index.html") })
-	r.NoRoute(func(ctx *gin.Context) { ctx.File("./front/index.html") })
+	r.Static("/assets", "./front/dist/assets")
+	r.StaticFile("/favicon.ico", "./front/dist/favicon.ico")
+	r.GET("/", func(ctx *gin.Context) { ctx.File("./front/dist/index.html") })
+	r.NoRoute(func(ctx *gin.Context) {
+		if !strings.HasPrefix(ctx.Request.URL.Path, "/api") {
+			ctx.File("./front/dist/index.html")
+		}
+	})
 	return r
 }

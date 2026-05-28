@@ -6,12 +6,13 @@ import (
 	"os"
 	"path/filepath"
 
+	"GoNetDisk/configs"
+	"GoNetDisk/internal/router"
+	"GoNetDisk/internal/util"
+	"GoNetDisk/pkg/database"
+	"GoNetDisk/pkg/storage"
+
 	"github.com/gin-gonic/gin"
-	"github.com/manyodream/gonetdisk/configs"
-	"github.com/manyodream/gonetdisk/internal/router"
-	"github.com/manyodream/gonetdisk/internal/util"
-	"github.com/manyodream/gonetdisk/pkg/database"
-	"github.com/manyodream/gonetdisk/pkg/storage"
 )
 
 func getConfigPath() string {
@@ -90,23 +91,39 @@ func main() {
 
 	db, err := database.InitDB(dsn)
 	if err != nil {
-		log.Fatal("初始化数据库失败:", err)
+		log.Fatal("初始化 Mysql 失败:", err)
+	}
+
+	rdb, err := database.InitRedis(
+		cfg.Redis.Host,
+		cfg.Redis.Port,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+	)
+	if err != nil {
+		log.Fatal("初始化 Redis 失败:", err)
 	}
 
 	minioClient, err := storage.NewMinioClient(cfg.Minio)
 	if err != nil {
-		log.Fatalf("新建 MinioClient 失败: %s", err)
+		log.Fatalf("初始化 MinioClient 失败: %s", err)
 	}
 
-	jwtManager := util.NewJWTManager(cfg.JWT.Secret, cfg.JWT.GetTokenDuration())
+	jwtManager := util.NewJWTManager(
+		cfg.JWT.Secret,
+		cfg.JWT.GetAccessTokenDuration(),
+		cfg.JWT.GetRefreshTokenDuration(),
+	)
 
 	// 设置路由
-	r := router.SetupRouter(db, minioClient, jwtManager, cfg)
+	r := router.SetupRouter(db, rdb, minioClient, jwtManager, cfg)
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
-	log.Printf("配置文件: %s", cfgDir)
+	log.Printf("配置文件路径: %s", cfgDir)
+	log.Printf("Mysql 端点: %d", cfg.Database.Port)
+	log.Printf("Redis 端点: %d", cfg.Redis.Port)
 	log.Printf("MinIO 端点: %s, Bucket: %s", cfg.Minio.Endpoint, cfg.Minio.Bucket)
 	log.Printf("运行模式: %s", cfg.Server.Mode)
 	log.Printf("监听地址: %s", addr)

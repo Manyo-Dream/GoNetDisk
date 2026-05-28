@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	Server   ServerConfig
+	Redis    RedisConfig
 	Minio    MinioConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
@@ -19,6 +20,13 @@ type ServerConfig struct {
 	Port int
 	Host string
 	Mode string
+}
+
+type RedisConfig struct {
+	Host     string
+	Port     int
+	Password string
+	DB       int
 }
 
 type MinioConfig struct {
@@ -41,8 +49,9 @@ type DatabaseConfig struct {
 }
 
 type JWTConfig struct {
-	Secret       string
-	ExpiresHours int
+	Secret             string
+	AccessExpiresMin   int
+	RefreshExpiresHour int
 }
 
 type UploadConfig struct {
@@ -65,6 +74,10 @@ func LoadConfig(configPath string) (*Config, error) {
 	return &config, nil
 }
 
-func (c *JWTConfig) GetTokenDuration() time.Duration {
-	return time.Duration(c.ExpiresHours) * time.Hour
+func (jwtc *JWTConfig) GetAccessTokenDuration() time.Duration {
+	return time.Duration(jwtc.AccessExpiresMin) * time.Minute
+}
+
+func (jwtc *JWTConfig) GetRefreshTokenDuration() time.Duration {
+	return time.Duration(jwtc.RefreshExpiresHour) * time.Hour
 }

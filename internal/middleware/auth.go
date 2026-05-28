@@ -1,12 +1,15 @@
 package middleware
+
 import (
+	"GoNetDisk/internal/repository"
+	"GoNetDisk/internal/util"
 	"net/http"
 	"strconv"
 	"strings"
+
 	"github.com/gin-gonic/gin"
-	"github.com/manyodream/gonetdisk/internal/repository"
-	"github.com/manyodream/gonetdisk/internal/util"
 )
+
 func AuthMiddleware(jwtManager *util.JWTManager, userRepo *repository.UserRepo) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		tokenString := ""

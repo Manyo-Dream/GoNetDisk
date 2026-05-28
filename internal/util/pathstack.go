@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/manyodream/gonetdisk/internal/repository"
+	"GoNetDisk/internal/repository"
 )
 
 func BuildPathStack(repo *repository.FileRepo, userID, parentID, itemID uint64) (string, error) {

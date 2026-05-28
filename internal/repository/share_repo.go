@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/manyodream/gonetdisk/internal/model"
+	"GoNetDisk/internal/model"
+
 	"gorm.io/gorm"
 )
 
@@ -65,9 +66,9 @@ func (r *ShareRepo) DeleteShare(userID uint64, shareCode string) error {
 	return nil
 }
 
-func (r *ShareRepo) IncrViewCount(shareCode string) error {
+func (r *ShareRepo) IncrViewCountBy(shareCode string, delta int64) error {
 	return r.db.Model(&model.Share{}).
 		Where("share_code = ?", shareCode).
-		UpdateColumn("view_count", gorm.Expr("COALESCE(view_count, 0) + ?", 1)).
+		UpdateColumn("view_count", gorm.Expr("COALESCE(view_count, 0) + ?", delta)).
 		Error
 }

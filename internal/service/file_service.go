@@ -13,16 +13,34 @@ import (
 	"strings"
 	"time"
 
-	"github.com/manyodream/gonetdisk/configs"
-	"github.com/manyodream/gonetdisk/internal/dto"
-	"github.com/manyodream/gonetdisk/internal/model"
-	"github.com/manyodream/gonetdisk/internal/repository"
-	"github.com/manyodream/gonetdisk/internal/util"
+	"GoNetDisk/configs"
+	"GoNetDisk/internal/api"
+	"GoNetDisk/internal/model"
+	"GoNetDisk/internal/repository"
+	"GoNetDisk/internal/util"
+
 	"github.com/minio/minio-go/v7"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
+const lockScript = `
+	if redis.call('exists', KEYS[1]) == 0 then
+		redis.call('set', KEYS[1], ARGV[1], 'ex', ARGV[2])
+		return 1
+	end
+	return 0
+`
+
+const unlockScript = `
+	if redis.call('get', KEYS[1]) == ARGV[1] then
+		return redis.call('del', KEYS[1])
+	end
+	return 0
+`
+
 type FileService struct {
+	redis       *redis.Client
 	minioClient *minio.Client
 	userRepo    *repository.UserRepo
 	fileRepo    *repository.FileRepo
@@ -30,8 +48,9 @@ type FileService struct {
 	config      *configs.Config
 }
 
-func NewFileService(minioClient *minio.Client, userRepo *repository.UserRepo, fileRepo *repository.FileRepo, jwtManger *util.JWTManager, config *configs.Config) *FileService {
+func NewFileService(redis *redis.Client, minioClient *minio.Client, userRepo *repository.UserRepo, fileRepo *repository.FileRepo, jwtManger *util.JWTManager, config *configs.Config) *FileService {
 	return &FileService{
+		redis:       redis,
 		minioClient: minioClient,
 		userRepo:    userRepo,
 		fileRepo:    fileRepo,
@@ -40,7 +59,7 @@ func NewFileService(minioClient *minio.Client, userRepo *repository.UserRepo, fi
 	}
 }
 
-func (s *FileService) UploadPhyFileAndBindFile(email string, parentID uint64, fileHeader *multipart.FileHeader) (*dto.FileUploadResponse, error) {
+func (s *FileService) UploadPhyFileAndBindFile(email string, parentID uint64, fileHeader *multipart.FileHeader) (*api.FileUploadResponse, error) {
 	validResult, err := s.validFile(fileHeader)
 	if err != nil {
 		return nil, util.BadRequest(fmt.Sprintf("验证文件信息失败: %s", err))
@@ -80,6 +99,9 @@ func (s *FileService) UploadPhyFileAndBindFile(email string, parentID uint64, fi
 	if err != nil {
 		return nil, err
 	}
+	if physicalID == 0 {
+		return nil, util.Internal("创建物理文件记录异常: physical_id 为 0，请检查 physical_file 表是否配置了 AUTO_INCREMENT")
+	}
 
 	return s.createUserFileRecord(userInfo.ID, parentID, physicalID, validResult)
 }
@@ -90,58 +112,145 @@ func (s *FileService) findOrCreatePhysicalFile(data []byte, fileName string, fil
 	fileHash = fmt.Sprintf("%x", md5.Sum(data))
 	fileExt = strings.ToLower(filepath.Ext(fileName))
 
-	hashResult, err := s.fileRepo.HashDeduplication(fileHash)
+	cacheKey := "hash:" + fileHash
+	lockKey := "lock:hash:" + fileHash
+	lockValue := fmt.Sprintf("%d", time.Now().UnixNano()) // 唯一标识，防止误删锁
 
+	// 查缓存
+	if id, ok := s.tryUseCache(cacheKey); ok {
+		return id, fileHash, fileExt, nil
+	}
+
+	// 尝试获取锁
+	locked, err := s.redis.Eval(
+		context.Background(),
+		lockScript,
+		[]string{lockKey},
+		lockValue,
+		2).Result()
+	if err != nil || locked.(int64) == 0 {
+		// 获取锁失败，等待重试
+		return s.waitAndRetry(cacheKey, fileHash, fileExt)
+	}
+
+	// 确保释放锁
+	defer s.redis.Eval(
+		context.Background(),
+		unlockScript,
+		[]string{lockKey},
+		lockValue)
+
+	// 双重检查
+	if id, ok := s.tryUseCache(cacheKey); ok {
+		return id, fileHash, fileExt, nil
+	}
+
+	// 查询或创建文件
+	return s.createPhysicalFile(data, fileName, fileSize, fileHash, fileExt, cacheKey)
+}
+
+// 辅助方法：尝试从缓存获取
+func (s *FileService) tryUseCache(cacheKey string) (uint64, bool) {
+	val, err := s.redis.Get(context.Background(), cacheKey).Result()
+	if err != nil {
+		return 0, false
+	}
+
+	id, parseErr := strconv.ParseUint(val, 10, 64)
+	if parseErr != nil {
+		s.redis.Del(context.Background(), cacheKey)
+		return 0, false
+	}
+	if id == 0 {
+		s.redis.Del(context.Background(), cacheKey)
+		return 0, false
+	}
+
+	if incrErr := s.fileRepo.IncrPhyFileRefCount(id, 1); incrErr != nil {
+		s.redis.Del(context.Background(), cacheKey)
+		return 0, false
+	}
+
+	return id, true
+}
+
+// 辅助方法：等待并重试
+func (s *FileService) waitAndRetry(cacheKey, fileHash, fileExt string) (uint64, string, string, error) {
+	for i := range 5 {
+		time.Sleep(time.Duration(50*(i+1)) * time.Millisecond)
+
+		if id, ok := s.tryUseCache(cacheKey); ok {
+			return id, fileHash, fileExt, nil
+		}
+	}
+
+	return 0, "", "", util.Internal("文件处理超时，请重试")
+}
+
+// 辅助方法：创建物理文件
+func (s *FileService) createPhysicalFile(data []byte, fileName string, fileSize int64,
+	fileHash, fileExt, cacheKey string) (uint64, string, string, error) {
+
+	hashResult, err := s.fileRepo.HashDeduplication(fileHash)
 	if err == nil {
 		err = s.fileRepo.IncrPhyFileRefCount(hashResult.ID, 1)
 		if err != nil {
 			return 0, "", "", util.Internal(fmt.Sprintf("更新物理文件引用数失败: %s", err))
 		}
+		s.redis.Set(context.Background(), cacheKey, strconv.FormatUint(hashResult.ID, 10), time.Hour)
 		return hashResult.ID, fileHash, fileExt, nil
+	}
 
-	} else if errors.Is(err, gorm.ErrRecordNotFound) {
-		objectKey := fmt.Sprintf("objects/%s/%s/%s%s",
-			fileHash[:2],
-			fileHash[2:4],
-			fileHash,
-			fileExt,
-		)
-
-		_, err = s.minioClient.PutObject(
-			context.Background(),
-			s.config.Minio.Bucket,
-			objectKey,
-			bytes.NewReader(data),
-			int64(len(data)),
-			minio.PutObjectOptions{},
-		)
-		if err != nil {
-			return 0, "", "", util.Internal(fmt.Sprintf("上传到 MinIO 失败: %s", err))
-		}
-
-		phyFile := &model.PhysicalFile{
-			FileHash:    fileHash,
-			FileName:    fileName,
-			FileExt:     fileExt,
-			FileSize:    fileSize,
-			FilePath:    objectKey,
-			StorageType: "minio",
-			RefCount:    1,
-		}
-
-		err = s.fileRepo.CreatePhyFile(phyFile)
-		if err != nil {
-			return 0, "", "", util.Internal(fmt.Sprintf("创建物理文件记录失败: %s", err))
-		}
-
-		return phyFile.ID, fileHash, fileExt, nil
-
-	} else {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, "", "", util.Internal(fmt.Sprintf("哈希查重失败: %s", err))
 	}
+
+	objectKey := fmt.Sprintf("objects/%s/%s/%s%s",
+		fileHash[:2], fileHash[2:4], fileHash, fileExt)
+
+	// 上传到 MinIO
+	_, err = s.minioClient.PutObject(
+		context.Background(),
+		s.config.Minio.Bucket,
+		objectKey,
+		bytes.NewReader(data),
+		int64(len(data)),
+		minio.PutObjectOptions{},
+	)
+	if err != nil {
+		return 0, "", "", util.Internal(fmt.Sprintf("上传到 MinIO 失败: %s", err))
+	}
+
+	// 创建数据库记录
+	phyFile := &model.PhysicalFile{
+		FileHash:    fileHash,
+		FileName:    fileName,
+		FileExt:     fileExt,
+		FileSize:    fileSize,
+		FilePath:    objectKey,
+		StorageType: "minio",
+		RefCount:    1,
+	}
+
+	err = s.fileRepo.CreatePhyFile(phyFile)
+	if err != nil {
+		// 清理 MinIO
+		s.minioClient.RemoveObject(context.Background(), s.config.Minio.Bucket,
+			objectKey, minio.RemoveObjectOptions{})
+		return 0, "", "", util.Internal(fmt.Sprintf("创建物理文件记录失败: %s", err))
+	}
+
+	if phyFile.ID == 0 {
+		s.minioClient.RemoveObject(context.Background(), s.config.Minio.Bucket,
+			objectKey, minio.RemoveObjectOptions{})
+		return 0, "", "", util.Internal("创建物理文件记录异常: 数据库表 physical_file 可能缺少 AUTO_INCREMENT，请执行: ALTER TABLE physical_file MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT")
+	}
+
+	s.redis.Set(context.Background(), cacheKey, strconv.FormatUint(phyFile.ID, 10), time.Hour)
+	return phyFile.ID, fileHash, fileExt, nil
 }
 
-func (s *FileService) DownloadUserFile(userID, userFileID uint64) (*dto.FileDownloadResponse, io.ReadCloser, error) {
+func (s *FileService) DownloadUserFile(userID, userFileID uint64) (*api.FileDownloadResponse, io.ReadCloser, error) {
 	userFile, phyFile, err := s.fileRepo.GetFileByDownloadReq(userID, userFileID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil, util.NotFound("文件不存在")
@@ -163,7 +272,7 @@ func (s *FileService) DownloadUserFile(userID, userFileID uint64) (*dto.FileDown
 		return nil, nil, util.Internal(fmt.Sprintf("从 MinIO 读取文件失败: %s", err))
 	}
 
-	return &dto.FileDownloadResponse{
+	return &api.FileDownloadResponse{
 		FileName:    userFile.FileName,
 		StorageType: phyFile.StorageType,
 		FileExt:     userFile.FileExt,
@@ -171,7 +280,7 @@ func (s *FileService) DownloadUserFile(userID, userFileID uint64) (*dto.FileDown
 	}, obj, nil
 }
 
-func (s *FileService) GetUserFileList(userID, parentID uint64, page, pageSize int, sortBy, orderBy string) (*dto.FileListResponse, error) {
+func (s *FileService) GetUserFileList(userID, parentID uint64, page, pageSize int, sortBy, orderBy string) (*api.FileListResponse, error) {
 	switch {
 	case page < 1:
 		page = 1
@@ -202,7 +311,7 @@ func (s *FileService) GetUserFileList(userID, parentID uint64, page, pageSize in
 		return nil, util.Internal(fmt.Sprintf("获取文件列表失败: %s", err))
 	}
 
-	return &dto.FileListResponse{
+	return &api.FileListResponse{
 		List:     userFileList,
 		Total:    total,
 		Page:     page,
@@ -210,7 +319,7 @@ func (s *FileService) GetUserFileList(userID, parentID uint64, page, pageSize in
 	}, nil
 }
 
-func (s *FileService) GetTrashList(userID uint64, page, pageSize int) (*dto.TrashListResponse, error) {
+func (s *FileService) GetTrashList(userID uint64, page, pageSize int) (*api.TrashListResponse, error) {
 	switch {
 	case page < 1:
 		page = 1
@@ -227,7 +336,7 @@ func (s *FileService) GetTrashList(userID uint64, page, pageSize int) (*dto.Tras
 		return nil, util.Internal(fmt.Sprintf("获取文件列表失败: %s", err))
 	}
 
-	return &dto.TrashListResponse{
+	return &api.TrashListResponse{
 		List:     trashFileList,
 		Total:    total,
 		Page:     page,
@@ -235,7 +344,7 @@ func (s *FileService) GetTrashList(userID uint64, page, pageSize int) (*dto.Tras
 	}, nil
 }
 
-func (s *FileService) MoveFileToTrash(userID, userFileID uint64) (*dto.TrashDeleteResponse, error) {
+func (s *FileService) MoveFileToTrash(userID, userFileID uint64) (*api.TrashDeleteResponse, error) {
 	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("获取用户文件失败: %s", err))
@@ -253,12 +362,12 @@ func (s *FileService) MoveFileToTrash(userID, userFileID uint64) (*dto.TrashDele
 		if err != nil {
 			return nil, util.Internal(fmt.Sprintf("更新用户空间失败: %s", err))
 		}
-		return &dto.TrashDeleteResponse{Message: "文件成功移入回收站"}, nil
+		return &api.TrashDeleteResponse{Message: "文件成功移入回收站"}, nil
 	}
 	return nil, util.Conflict("文件已在回收站")
 }
 
-func (s *FileService) RestoreFile(userID, userFileID uint64) (*dto.TrashRestoreResponse, error) {
+func (s *FileService) RestoreFile(userID, userFileID uint64) (*api.TrashRestoreResponse, error) {
 	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
 	if err != nil {
 		return nil, util.Internal(err.Error())
@@ -289,10 +398,10 @@ func (s *FileService) RestoreFile(userID, userFileID uint64) (*dto.TrashRestoreR
 		return nil, util.Internal(fmt.Sprintf("更新用户空间失败: %s", err))
 	}
 
-	return &dto.TrashRestoreResponse{Message: "文件成功还原"}, nil
+	return &api.TrashRestoreResponse{Message: "文件成功还原"}, nil
 }
 
-func (s *FileService) RenameFile(userID, userFileID uint64, newFileName string) (*dto.FileRenameResponse, error) {
+func (s *FileService) RenameFile(userID, userFileID uint64, newFileName string) (*api.FileRenameResponse, error) {
 	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
 	if err != nil {
 		return nil, util.NotFound(fmt.Sprintf("文件不存在: %s", err))
@@ -330,14 +439,14 @@ func (s *FileService) RenameFile(userID, userFileID uint64, newFileName string) 
 		return nil, util.Internal(fmt.Sprintf("更新文件名失败: %s", err))
 	}
 
-	return &dto.FileRenameResponse{
+	return &api.FileRenameResponse{
 		UserFileID: userFile.ID,
 		FileName:   userFile.FileName,
 		FileExt:    userFile.FileExt,
 	}, nil
 }
 
-func (s *FileService) MoveFile(userID, userFileID, targetParentID uint64) (*dto.FileMoveResponse, error) {
+func (s *FileService) MoveFile(userID, userFileID, targetParentID uint64) (*api.FileMoveResponse, error) {
 	userFile, err := s.fileRepo.GetUserFileByID(userID, userFileID)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("获取用户文件失败: %s", err))
@@ -352,7 +461,7 @@ func (s *FileService) MoveFile(userID, userFileID, targetParentID uint64) (*dto.
 	}
 
 	if targetParentID == userFile.ParentID {
-		return &dto.FileMoveResponse{
+		return &api.FileMoveResponse{
 			UserFileID:   userFile.ID,
 			FileName:     userFile.FileName,
 			NewParentID:  userFile.ParentID,
@@ -389,7 +498,7 @@ func (s *FileService) MoveFile(userID, userFileID, targetParentID uint64) (*dto.
 		return nil, util.Internal(fmt.Sprintf("更新文件信息失败: %s", err))
 	}
 
-	return &dto.FileMoveResponse{
+	return &api.FileMoveResponse{
 		UserFileID:   userFile.ID,
 		FileName:     resolvedName,
 		NewParentID:  targetParentID,
@@ -397,7 +506,7 @@ func (s *FileService) MoveFile(userID, userFileID, targetParentID uint64) (*dto.
 	}, nil
 }
 
-func (s *FileService) RemoveFile(userID, userFileID uint64) (*dto.TrashDeleteResponse, error) {
+func (s *FileService) RemoveFile(userID, userFileID uint64) (*api.TrashDeleteResponse, error) {
 	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
 	if err != nil {
 		return nil, util.NotFound(fmt.Sprintf("文件不存在: %s", err))
@@ -429,6 +538,12 @@ func (s *FileService) RemoveFile(userID, userFileID uint64) (*dto.TrashDeleteRes
 			if err != nil {
 				return nil, util.Internal(fmt.Sprintf("从 MinIO 删除文件失败: %s", err))
 			}
+
+			_, err := s.redis.Del(context.Background(), "hash:"+phyFile.FileHash).Result()
+			if err != nil {
+				return nil, util.Internal(fmt.Sprintf("从 Redis 删除缓存失败: %s", err))
+			}
+
 			err = s.fileRepo.DeletePhysicalFile(phyFile.ID)
 			if err != nil {
 				return nil, util.Internal(fmt.Sprintf("删除物理文件记录失败: %s", err))
@@ -448,7 +563,7 @@ func (s *FileService) RemoveFile(userID, userFileID uint64) (*dto.TrashDeleteRes
 		}
 	}
 
-	return &dto.TrashDeleteResponse{Message: "文件已彻底删除"}, nil
+	return &api.TrashDeleteResponse{Message: "文件已彻底删除"}, nil
 }
 
 func (s *FileService) validFile(fileHeader *multipart.FileHeader) (*model.PhysicalFile, error) {
@@ -476,7 +591,12 @@ func (s *FileService) validFile(fileHeader *multipart.FileHeader) (*model.Physic
 	}, nil
 }
 
-func (s *FileService) createUserFileRecord(userID, parentID, physicalID uint64, validResult *model.PhysicalFile) (*dto.FileUploadResponse, error) {
+func (s *FileService) createUserFileRecord(
+	userID,
+	parentID,
+	physicalID uint64,
+	validResult *model.PhysicalFile,
+) (*api.FileUploadResponse, error) {
 	respFileName := validResult.FileName
 	existing, err := s.fileRepo.GetUserFileByFileName(userID, parentID, validResult.FileName)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -520,7 +640,7 @@ func (s *FileService) createUserFileRecord(userID, parentID, physicalID uint64, 
 		return nil, util.Internal(fmt.Sprintf("更新用户已使用空间失败: %s", err))
 	}
 
-	return &dto.FileUploadResponse{
+	return &api.FileUploadResponse{
 		UserFileID: userFile.ID,
 		FileName:   respFileName,
 		FileExt:    fileExt,

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/manyodream/gonetdisk/configs"
+	"GoNetDisk/configs"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )

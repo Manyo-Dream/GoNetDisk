@@ -4,10 +4,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"GoNetDisk/internal/api"
+	"GoNetDisk/internal/middleware"
+	"GoNetDisk/internal/service"
+
 	"github.com/gin-gonic/gin"
-	"github.com/manyodream/gonetdisk/internal/dto"
-	"github.com/manyodream/gonetdisk/internal/middleware"
-	"github.com/manyodream/gonetdisk/internal/service"
 )
 
 type FolderController struct {
@@ -19,7 +20,7 @@ func NewFolderController(folderServicer *service.FolderService) *FolderControlle
 }
 
 func (fdc *FolderController) CreateFolder(ctx *gin.Context) {
-	var req dto.FolderRequest
+	var req api.FolderRequest
 
 	if err := ctx.ShouldBind(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{
@@ -135,7 +136,7 @@ func (fdc *FolderController) RestoreFolder(ctx *gin.Context) {
 }
 
 func (fdc *FolderController) RenameFolder(ctx *gin.Context) {
-	var req *dto.FolderRenameRequest
+	var req *api.FolderRenameRequest
 
 	userID, ok := middleware.GetUserID(ctx)
 	if !ok {
@@ -201,7 +202,7 @@ func (fdc *FolderController) RemoveFolder(ctx *gin.Context) {
 }
 
 func (fdc *FolderController) MoveFolder(ctx *gin.Context) {
-	var req *dto.FolderMoveRequest
+	var req *api.FolderMoveRequest
 
 	userID, ok := middleware.GetUserID(ctx)
 	if !ok {

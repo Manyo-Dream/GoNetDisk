@@ -1,7 +1,7 @@
 -- 创建数据库（如果 docker-compose 没创建的话）
-CREATE DATABASE IF NOT EXISTS `gonetdisk` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS `GoNetDisk` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-USE `gonetdisk`;
+USE `GoNetDisk`;
 
 -- 1. 用户表
 CREATE TABLE `user` (

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/manyodream/gonetdisk/internal/util"
+	"GoNetDisk/internal/util"
 )
 
 func statusFromErr(err error) int {

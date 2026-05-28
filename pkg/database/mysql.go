@@ -3,7 +3,8 @@ package database
 import (
 	"fmt"
 
-	"github.com/manyodream/gonetdisk/internal/model"
+	"GoNetDisk/internal/model"
+
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -27,6 +28,7 @@ func InitDB(dsn string) (*gorm.DB, error) {
 		&model.UserFile{},
 		&model.UploadTask{},
 		&model.UploadFileRecord{},
+		&model.MultipartUpload{},
 		&model.Share{},
 	); err != nil {
 		return nil, fmt.Errorf("自动迁移操作失败: %w", err)

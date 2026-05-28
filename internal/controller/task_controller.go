@@ -4,10 +4,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"GoNetDisk/internal/api"
+	"GoNetDisk/internal/middleware"
+	"GoNetDisk/internal/service"
+
 	"github.com/gin-gonic/gin"
-	"github.com/manyodream/gonetdisk/internal/dto"
-	"github.com/manyodream/gonetdisk/internal/middleware"
-	"github.com/manyodream/gonetdisk/internal/service"
 )
 
 type TaskController struct {
@@ -19,7 +20,7 @@ func NewTaskController(taskServicer *service.TaskService) *TaskController {
 }
 
 func (tc *TaskController) CreateTaskAndRecords(ctx *gin.Context) {
-	var req dto.BatchUploadRequest
+	var req api.BatchUploadRequest
 
 	userID, ok := middleware.GetUserID(ctx)
 	if !ok {

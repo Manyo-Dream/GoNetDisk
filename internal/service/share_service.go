@@ -5,15 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
+	"GoNetDisk/configs"
+	"GoNetDisk/internal/api"
+	"GoNetDisk/internal/model"
+	"GoNetDisk/internal/repository"
+	"GoNetDisk/internal/util"
+
 	"github.com/google/uuid"
-	"github.com/manyodream/gonetdisk/configs"
-	"github.com/manyodream/gonetdisk/internal/dto"
-	"github.com/manyodream/gonetdisk/internal/model"
-	"github.com/manyodream/gonetdisk/internal/repository"
-	"github.com/manyodream/gonetdisk/internal/util"
 	"github.com/minio/minio-go/v7"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
@@ -21,21 +24,27 @@ type ShareService struct {
 	shareRepo   *repository.ShareRepo
 	fileRepo    *repository.FileRepo
 	userRepo    *repository.UserRepo
+	redis       *redis.Client
 	minioClient *minio.Client
 	config      *configs.Config
 }
 
-func NewShareService(shareRepo *repository.ShareRepo, fileRepo *repository.FileRepo, userRepo *repository.UserRepo, minioClient *minio.Client, config *configs.Config) *ShareService {
-	return &ShareService{
+func NewShareService(shareRepo *repository.ShareRepo, fileRepo *repository.FileRepo, userRepo *repository.UserRepo, redis *redis.Client, minioClient *minio.Client, config *configs.Config) *ShareService {
+	s := &ShareService{
 		shareRepo:   shareRepo,
 		fileRepo:    fileRepo,
 		userRepo:    userRepo,
+		redis:       redis,
 		minioClient: minioClient,
 		config:      config,
 	}
+
+	go s.syncViewCounts()
+
+	return s
 }
 
-func (s *ShareService) CreateShare(userID, userFileID uint64, code string, expireDays int) (*dto.ShareCreateResponse, error) {
+func (s *ShareService) CreateShare(userID, userFileID uint64, code string, expireDays int) (*api.ShareCreateResponse, error) {
 	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
 	if err != nil {
 		return nil, util.NotFound(fmt.Sprintf("文件或文件夹不存在: %s", err))
@@ -65,7 +74,7 @@ func (s *ShareService) CreateShare(userID, userFileID uint64, code string, expir
 		return nil, util.Internal(fmt.Sprintf("创建分享失败: %s", err))
 	}
 
-	return &dto.ShareCreateResponse{
+	return &api.ShareCreateResponse{
 		ShareCode: shareCode,
 		Code:      code,
 		ExpireAt:  expireAt,
@@ -73,30 +82,35 @@ func (s *ShareService) CreateShare(userID, userFileID uint64, code string, expir
 	}, nil
 }
 
-func (s *ShareService) GetUserShareList(userID uint64, page, pageSize int) (*dto.ShareListResponse, error) {
+func (s *ShareService) GetUserShareList(userID uint64, page, pageSize int) (*api.ShareListResponse, error) {
 	shares, total, err := s.shareRepo.GetSharesByUserID(userID, page, pageSize)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("获取分享列表失败: %s", err))
 	}
 
-	items := make([]dto.ShareItem, 0, len(shares))
+	items := make([]api.ShareItem, 0, len(shares))
+
 	for _, share := range shares {
+		redisCount, _ := s.redis.Get(context.Background(), "share:view:"+share.ShareCode).Int64()
+		displayCount := share.ViewCount + uint64(redisCount)
+
 		userFile, err := s.fileRepo.GetUserFileByIDAny(userID, share.UserFileID)
 		if err != nil {
 			userFile = &model.UserFile{FileName: "已删除", IsDir: false}
 		}
-		items = append(items, dto.ShareItem{
+
+		items = append(items, api.ShareItem{
 			ShareCode: share.ShareCode,
 			FileName:  userFile.FileName,
 			IsDir:     userFile.IsDir,
 			Code:      share.Code,
 			ExpireAt:  share.ExpireAt,
-			ViewCount: share.ViewCount,
+			ViewCount: displayCount,
 			CreatedAt: share.CreatedAt,
 		})
 	}
 
-	return &dto.ShareListResponse{
+	return &api.ShareListResponse{
 		List:     items,
 		Total:    total,
 		Page:     page,
@@ -104,7 +118,7 @@ func (s *ShareService) GetUserShareList(userID uint64, page, pageSize int) (*dto
 	}, nil
 }
 
-func (s *ShareService) GetShareInfo(shareCode, code string) (*dto.ShareInfoResponse, error) {
+func (s *ShareService) GetShareInfo(shareCode, code string) (*api.ShareInfoResponse, error) {
 	share, err := s.shareRepo.GetShareByCode(shareCode)
 	if err != nil {
 		return nil, util.NotFound(err.Error())
@@ -123,9 +137,7 @@ func (s *ShareService) GetShareInfo(shareCode, code string) (*dto.ShareInfoRespo
 		return nil, util.NotFound("分享的文件已被删除")
 	}
 
-	_ = s.shareRepo.IncrViewCount(shareCode)
-
-	return &dto.ShareInfoResponse{
+	return &api.ShareInfoResponse{
 		ShareCode: share.ShareCode,
 		FileName:  userFile.FileName,
 		FileExt:   userFile.FileExt,
@@ -144,7 +156,7 @@ func (s *ShareService) RevokeShare(userID uint64, shareCode string) error {
 	return nil
 }
 
-func (s *ShareService) DownloadSharedFile(shareCode, code string) (*dto.FileDownloadResponse, io.ReadCloser, error) {
+func (s *ShareService) DownloadSharedFile(shareCode, code string, userID uint64) (*api.FileDownloadResponse, io.ReadCloser, error) {
 	share, err := s.shareRepo.GetShareByCode(shareCode)
 	if err != nil {
 		return nil, nil, util.NotFound(err.Error())
@@ -179,10 +191,42 @@ func (s *ShareService) DownloadSharedFile(shareCode, code string) (*dto.FileDown
 		return nil, nil, util.Internal(fmt.Sprintf("从 MinIO 读取文件失败: %s", err))
 	}
 
-	return &dto.FileDownloadResponse{
+	s.redis.Incr(context.Background(), "share:view:"+shareCode)
+
+	return &api.FileDownloadResponse{
 		FileName:    userFile.FileName,
 		StorageType: phyFile.StorageType,
 		FileExt:     userFile.FileExt,
 		FileSize:    phyFile.FileSize,
 	}, obj, nil
+}
+
+func (s *ShareService) syncViewCounts() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ctx := context.Background()
+		var cursor uint64
+
+		for {
+			keys, nextCursor, err := s.redis.Scan(ctx, cursor, "share:view:*", 100).Result()
+			if err != nil {
+				break
+			}
+
+			for _, key := range keys {
+				count, err := s.redis.GetDel(ctx, key).Int64()
+				if err == nil && count > 0 {
+					shareCode := strings.TrimPrefix(key, "share:view:")
+					s.shareRepo.IncrViewCountBy(shareCode, count)
+				}
+			}
+
+			cursor = nextCursor
+			if cursor == 0 {
+				break
+			}
+		}
+	}
 }
