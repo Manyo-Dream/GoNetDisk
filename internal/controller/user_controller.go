@@ -90,7 +90,7 @@ func (c *UserController) RefreshToken(ctx *gin.Context) {
 }
 
 func (c *UserController) GetUserInfo(ctx *gin.Context) {
-	email, ok := middleware.GetEmail(ctx)
+	userID, ok := middleware.GetUserID(ctx)
 	if !ok {
 		ctx.JSON(http.StatusUnauthorized, gin.H{
 			"error": "未认证用户",
@@ -98,7 +98,7 @@ func (c *UserController) GetUserInfo(ctx *gin.Context) {
 		return
 	}
 
-	resp, err := c.UserService.GetUserInfo(email)
+	resp, err := c.UserService.GetUserInfo(userID)
 	if err != nil {
 		ctx.JSON(statusFromErr(err), gin.H{
 			"error": "用户信息获取失败:" + err.Error(),

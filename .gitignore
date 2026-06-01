@@ -50,7 +50,7 @@ Thumbs.db
 # Go modules cache
 go/pkg/mod/
 
-docker/mysql_data
+docker/postgres_data/
 docker/minio_data/
 docker/minio_config/
 docker/redis_data/

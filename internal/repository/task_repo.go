@@ -14,6 +14,11 @@ func NewTaskRepo(db *gorm.DB) *TaskRepo {
 	return &TaskRepo{db: db}
 }
 
+// WithTx 返回绑定到事务的新实例
+func (r *TaskRepo) WithTx(tx *gorm.DB) *TaskRepo {
+	return &TaskRepo{db: tx}
+}
+
 func (tr *TaskRepo) CreateUploadTask(task *model.UploadTask) error {
 	return tr.db.Create(task).Error
 }

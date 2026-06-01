@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { formatSize, formatDate } from '../utils/format.js'
+import { useI18n } from '../i18n/index.js'
+
+const { t } = useI18n()
 
 const props = defineProps({
   files: { type: Array, default: () => [] },
@@ -52,16 +55,16 @@ function rowClick(item) {
 }
 
 function fileIcon(item) {
-  if (item.is_dir) return { label: '[DIR]', cls: 'fi-dir' }
+  if (item.is_dir) return { label: '[' + t('files.fileType.dir') + ']', cls: 'fi-dir' }
   const ext = (item.file_ext || '').toLowerCase()
-  if (['.jpg','.jpeg','.png','.gif','.svg','.webp','.bmp','.ico'].includes(ext)) return { label: '[IMG]', cls: 'fi-img' }
-  if (['.mp4','.mkv','.avi','.mov','.webm','.flv','.wmv'].includes(ext)) return { label: '[VID]', cls: 'fi-vid' }
-  if (['.mp3','.wav','.flac','.ogg','.aac','.wma','.m4a'].includes(ext)) return { label: '[AUD]', cls: 'fi-aud' }
-  if (['.zip','.rar','.7z','.tar','.gz','.bz2','.xz'].includes(ext)) return { label: '[ZIP]', cls: 'fi-zip' }
-  if (['.pdf'].includes(ext)) return { label: '[PDF]', cls: 'fi-pdf' }
-  if (['.doc','.docx','.xls','.xlsx','.ppt','.pptx'].includes(ext)) return { label: '[DOC]', cls: 'fi-doc' }
-  if (['.txt','.md','.log','.csv'].includes(ext)) return { label: '[TXT]', cls: 'fi-txt' }
-  if (['.js','.ts','.jsx','.tsx','.vue','.py','.go','.rs','.java','.c','.cpp','.h','.json','.xml','.html','.css','.scss','.yaml','.toml','.sh','.bat'].includes(ext)) return { label: '[COD]', cls: 'fi-code' }
+  if (['.jpg','.jpeg','.png','.gif','.svg','.webp','.bmp','.ico'].includes(ext)) return { label: '[' + t('files.fileType.img') + ']', cls: 'fi-img' }
+  if (['.mp4','.mkv','.avi','.mov','.webm','.flv','.wmv'].includes(ext)) return { label: '[' + t('files.fileType.vid') + ']', cls: 'fi-vid' }
+  if (['.mp3','.wav','.flac','.ogg','.aac','.wma','.m4a'].includes(ext)) return { label: '[' + t('files.fileType.aud') + ']', cls: 'fi-aud' }
+  if (['.zip','.rar','.7z','.tar','.gz','.bz2','.xz'].includes(ext)) return { label: '[' + t('files.fileType.zip') + ']', cls: 'fi-zip' }
+  if (['.pdf'].includes(ext)) return { label: '[' + t('files.fileType.pdf') + ']', cls: 'fi-pdf' }
+  if (['.doc','.docx','.xls','.xlsx','.ppt','.pptx'].includes(ext)) return { label: '[' + t('files.fileType.doc') + ']', cls: 'fi-doc' }
+  if (['.txt','.md','.log','.csv'].includes(ext)) return { label: '[' + t('files.fileType.txt') + ']', cls: 'fi-txt' }
+  if (['.js','.ts','.jsx','.tsx','.vue','.py','.go','.rs','.java','.c','.cpp','.h','.json','.xml','.html','.css','.scss','.yaml','.toml','.sh','.bat'].includes(ext)) return { label: '[' + t('files.fileType.code') + ']', cls: 'fi-code' }
   return { label: '[   ]', cls: 'fi-other' }
 }
 
@@ -76,10 +79,10 @@ function formatTime(d) {
       <thead>
         <tr>
           <th style="width:30px"><input type="checkbox" class="cb" :checked="selectAll" @click.stop="toggleSelectAll" /></th>
-          <th style="width:56px"></th>
-          <th>NAME</th>
-          <th style="width:100px">SIZE</th>
-          <th style="width:140px">MODIFIED</th>
+          <th style="width:80px"></th>
+          <th>{{ t('common.name') }}</th>
+          <th style="width:100px">{{ t('common.size') }}</th>
+          <th style="width:140px">{{ t('common.modified') }}</th>
           <th style="width:80px"></th>
         </tr>
       </thead>
@@ -110,32 +113,32 @@ function formatTime(d) {
               <button
                 v-if="!item.is_dir"
                 class="btn btn-icon btn-sm"
-                title="DOWNLOAD"
+                :title="t('action.download')"
                 aria-label="Download file"
                 @click.stop="emit('download', item)"
               >[v]</button>
               <button
                 v-if="!item.is_dir"
                 class="btn btn-icon btn-sm"
-                title="SHARE"
+                :title="t('action.share')"
                 aria-label="Share file"
                 @click.stop="emit('share', item)"
               >[<>]</button>
               <button
                 class="btn btn-icon btn-sm"
-                title="RENAME"
+                :title="t('action.rename')"
                 aria-label="Rename item"
                 @click.stop="emit('rename', item)"
               >[r]</button>
               <button
                 class="btn btn-icon btn-sm"
-                title="MOVE"
+                :title="t('action.move')"
                 aria-label="Move item"
                 @click.stop="emit('move', item)"
               >[m]</button>
               <button
                 class="btn btn-icon btn-sm btn-rm"
-                title="DELETE"
+                :title="t('action.delete')"
                 aria-label="Delete item"
                 @click.stop="emit('remove', item)"
               >[x]</button>
@@ -146,13 +149,13 @@ function formatTime(d) {
     </table>
 
     <div v-else-if="loading" class="empty-state">
-      <span class="cursor-blink">_</span> LOADING…
+      <span class="cursor-blink">_</span> {{ t('common.loading') }}
     </div>
 
     <div v-else class="empty-state">
       <span class="icon">[--]</span>
-      <span>EMPTY DIRECTORY</span>
-      <span style="font-size:var(--fs-xs);color:var(--text-muted)">Drop files or create folders</span>
+      <span>{{ t('files.emptyDirectory') }}</span>
+      <span style="font-size:var(--fs-xs);color:var(--text-muted)">{{ t('files.dropHint') }}</span>
     </div>
   </div>
 </template>
@@ -166,7 +169,8 @@ function formatTime(d) {
   text-align: center;
 }
 .td-icon {
-  width: 56px;
+  width: 80px;
+  white-space: nowrap;
   font-size: var(--fs-xs);
   font-weight: 600;
 }

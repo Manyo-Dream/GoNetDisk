@@ -2,12 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { userApi } from '../api/index.js'
 import { formatSize } from '../utils/format.js'
+import { useI18n } from '../i18n/index.js'
 
 const props = defineProps({
   userInfo: Object,
 })
 const emit = defineEmits(['logout'])
 
+const { t } = useI18n()
 const space = ref(null)
 
 onMounted(async () => {
@@ -27,7 +29,7 @@ function spacePct() {
   <header class="topbar">
     <div class="topbar-left">
       <span class="path-indicator" v-if="space">
-        STORAGE  {{ formatSize(space.used_space) }} / {{ formatSize(space.total_space) }}
+        {{ t('topbar.storage') }}  {{ formatSize(space.used_space) }} / {{ formatSize(space.total_space) }}
         <span class="pct">{{ spacePct().toFixed(0) }}%</span>
       </span>
     </div>
@@ -35,7 +37,7 @@ function spacePct() {
       <span class="user-tag" v-if="userInfo">
         [{{ userInfo.username || userInfo.email }}]
       </span>
-      <button class="btn btn-sm" @click="emit('logout')">EXIT</button>
+      <button class="btn btn-sm" @click="emit('logout')">{{ t('topbar.exit') }}</button>
     </div>
     <div class="space-bar" v-if="space">
       <div class="fill" :style="{ width: spacePct() + '%' }"></div>

@@ -9,12 +9,19 @@ import (
 	"gorm.io/gorm"
 )
 
+var ErrUserFileNotFound = errors.New("user file not found")
+
 type FileRepo struct {
 	db *gorm.DB
 }
 
 func NewFileRepo(db *gorm.DB) *FileRepo {
 	return &FileRepo{db: db}
+}
+
+// WithTx 返回绑定到事务的新实例
+func (r *FileRepo) WithTx(tx *gorm.DB) *FileRepo {
+	return &FileRepo{db: tx}
 }
 
 // PhysicalFile
@@ -79,14 +86,13 @@ func (r *FileRepo) GetUserFileByFolderName(userID, parentID uint64, folderName s
 }
 
 func (r *FileRepo) GetUserFileByPhysicalID(userID, physicalID uint64) (*model.UserFile, error) {
-    var userFile model.UserFile
-    err := r.db.Where("user_id = ? AND physical_id = ?", userID, physicalID).First(&userFile).Error
-    if err != nil {
-        return nil, err
-    }
-    return &userFile, nil
+	var userFile model.UserFile
+	err := r.db.Where("user_id = ? AND physical_id = ?", userID, physicalID).First(&userFile).Error
+	if err != nil {
+		return nil, err
+	}
+	return &userFile, nil
 }
-
 
 func (r *FileRepo) GetParentFolderByParentID(userID, parentID uint64) (*model.UserFile, error) {
 	var userFolder model.UserFile
@@ -265,7 +271,7 @@ func (r *FileRepo) SoftDeleteUserItem(userID, userFileID uint64) error {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return errors.New("未找到符合条件的文件")
+		return fmt.Errorf("未找到符合条件的文件: %w", ErrUserFileNotFound)
 	}
 
 	return nil
@@ -285,13 +291,9 @@ func (r *FileRepo) RestoreUserFile(userID, userFileID uint64) error {
 	return nil
 }
 
-// Others
-func (r *FileRepo) GetSpace(userid string) (uint64, error) {
-	var user model.User
-	err := r.db.Where("user_id = ?", userid).First(&user).Error
-	return user.Total_Space, err
-}
-
+// IncrPhyFileRefCount 和 DecrPhyFileRefCount 调用处有两类并发保护：
+// 上传路径（tryUseCache / createPhysicalFile）由 Redis 分布式锁（lock:hash）保护
+// 删除路径（RemoveFile / hardDeleteFolderRecursive）在 DB 事务内通过 txFileRepo 调用
 func (r *FileRepo) IncrPhyFileRefCount(id uint64, delta int) error {
 	result := r.db.Model(&model.PhysicalFile{}).
 		Where("id = ?", id).

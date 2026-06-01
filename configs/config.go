@@ -38,14 +38,15 @@ type MinioConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host      string
-	Port      int
-	User      string
-	Password  string
-	Name      string
-	Charset   string
-	ParseTime bool
-	Loc       string
+	Host               string
+	Port               int
+	User               string
+	Password           string
+	Name               string
+	MaxOpenConns       int           `mapstructure:"max_open_conns"`
+	MaxIdleConns       int           `mapstructure:"max_idle_conns"`
+	ConnMaxLifetimeMin time.Duration `mapstructure:"conn_max_lifetime_min"`
+	ConnMaxIdleTimeMin time.Duration `mapstructure:"conn_max_idle_time_min"`
 }
 
 type JWTConfig struct {

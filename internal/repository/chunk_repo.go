@@ -15,6 +15,11 @@ func NewChunkRepo(db *gorm.DB) *ChunkRepo {
 	return &ChunkRepo{db: db}
 }
 
+// WithTx 返回绑定到事务的新实例，方法调用将走同一个事务
+func (cr *ChunkRepo) WithTx(tx *gorm.DB) *ChunkRepo {
+	return &ChunkRepo{db: tx}
+}
+
 func (cr *ChunkRepo) Create(m *model.MultipartUpload) error {
 	return cr.db.Model(&model.MultipartUpload{}).Create(m).Error
 }

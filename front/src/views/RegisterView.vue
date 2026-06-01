@@ -2,9 +2,11 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { userApi, setTokens } from '../api/index.js'
+import { useI18n } from '../i18n/index.js'
 
 const router = useRouter()
 const route = useRoute()
+const { t } = useI18n()
 const username = ref('')
 const email = ref('')
 const password = ref('')
@@ -15,15 +17,19 @@ const loading = ref(false)
 async function handleRegister() {
   error.value = ''
   if (!username.value || !email.value || !password.value) {
-    error.value = 'ALL FIELDS REQUIRED'
+    error.value = t('auth.allFieldsRequired')
     return
   }
   if (password.value !== confirm.value) {
-    error.value = 'PASSPHRASES DO NOT MATCH'
+    error.value = t('auth.passwordsNotMatch')
     return
   }
   if (password.value.length < 6) {
-    error.value = 'PASSPHRASE TOO SHORT (MIN 6)'
+    error.value = t('auth.passwordTooShort')
+    return
+  }
+  if (!/[a-zA-Z]/.test(password.value) || !/[0-9]/.test(password.value)) {
+    error.value = t('auth.passwordNoLetterOrDigit')
     return
   }
   loading.value = true
@@ -49,38 +55,38 @@ async function handleRegister() {
     <div class="auth-card">
       <div class="card-header">
         <span class="logo">[gnd]</span>
-        <h1>REGISTER</h1>
-        <p>CREATE NEW ACCOUNT</p>
+        <h1>{{ t('auth.register') }}</h1>
+        <p>{{ t('auth.createAccount') }}</p>
       </div>
 
       <form @submit.prevent="handleRegister" class="auth-form">
         <label>
-          <span>USERNAME</span>
-          <input v-model="username" type="text" name="username" placeholder="username…" autocomplete="username" />
+          <span>{{ t('auth.username') }}</span>
+          <input v-model="username" type="text" name="username" :placeholder="t('auth.usernamePlaceholder')" autocomplete="username" />
         </label>
         <label>
-          <span>EMAIL</span>
-          <input v-model="email" type="email" name="email" placeholder="user@host…" autocomplete="email" spellcheck="false" />
+          <span>{{ t('auth.email') }}</span>
+          <input v-model="email" type="email" name="email" :placeholder="t('auth.emailPlaceholder')" autocomplete="email" spellcheck="false" />
         </label>
         <label>
-          <span>PASSPHRASE</span>
-          <input v-model="password" type="password" name="password" placeholder="min 6 chars…" autocomplete="new-password" />
+          <span>{{ t('auth.password') }}</span>
+          <input v-model="password" type="password" name="password" :placeholder="t('auth.newPasswordPlaceholder')" autocomplete="new-password" />
         </label>
         <label>
-          <span>CONFIRM PASSPHRASE</span>
-          <input v-model="confirm" type="password" name="confirm" placeholder="repeat passphrase…" autocomplete="new-password" />
+          <span>{{ t('auth.confirmPassword') }}</span>
+          <input v-model="confirm" type="password" name="confirm" :placeholder="t('auth.confirmPlaceholder')" autocomplete="new-password" />
         </label>
 
         <div v-if="error" class="error-msg">! {{ error }}</div>
 
         <button type="submit" class="btn btn-primary" :disabled="loading">
           <span v-if="loading" class="cursor-blink">_</span>
-          <span v-else>[+] REGISTER</span>
+          <span v-else>[+] {{ t('auth.registerBtn') }}</span>
         </button>
       </form>
 
       <div class="card-footer">
-        <router-link to="/login">[<] BACK TO LOGIN</router-link>
+        <router-link to="/login">[<] {{ t('auth.backToLogin') }}</router-link>
       </div>
     </div>
   </div>

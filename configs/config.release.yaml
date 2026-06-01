@@ -17,14 +17,11 @@ minio:
   usessl: false
 
 database:
-  host: "mysql"
-  port: 3306
-  user: "root"
+  host: "postgres"
+  port: 5432
+  user: "GoNetDisk"
   password: "GoNetDisk"
   name: "GoNetDisk"
-  charset: "utf8mb4"
-  parseTime: true
-  loc: "Local"
 
 jwt:
   secret: "请修改为随机字符串"

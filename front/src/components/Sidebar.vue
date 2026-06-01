@@ -1,11 +1,14 @@
 <script setup>
 import { useRoute } from 'vue-router'
+import { useI18n } from '../i18n/index.js'
+import { toggleLocale } from '../i18n/index.js'
 
 defineProps({
   navItems: Array,
 })
 
 const route = useRoute()
+const { t, locale } = useI18n()
 
 function isActive(item) {
   return route.path.startsWith(item.to)
@@ -31,6 +34,9 @@ function isActive(item) {
       </li>
     </ul>
     <div class="sidebar-footer">
+      <button class="lang-toggle" @click="toggleLocale" :title="locale === 'zh-CN' ? 'Switch to English' : '切换到中文'">
+        {{ locale === 'zh-CN' ? 'EN' : '中' }}
+      </button>
       <span class="ver">v1.0.0</span>
     </div>
   </nav>
@@ -107,6 +113,22 @@ li.active .icon {
 .sidebar-footer {
   padding: var(--gap-3) var(--gap-4);
   border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.lang-toggle {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 2px var(--gap-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  letter-spacing: 0.06em;
+}
+.lang-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .ver {
   font-size: var(--fs-xs);

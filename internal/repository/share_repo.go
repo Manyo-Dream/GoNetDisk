@@ -17,6 +17,11 @@ func NewShareRepo(db *gorm.DB) *ShareRepo {
 	return &ShareRepo{db: db}
 }
 
+// WithTx 返回绑定到事务的新实例
+func (r *ShareRepo) WithTx(tx *gorm.DB) *ShareRepo {
+	return &ShareRepo{db: tx}
+}
+
 func (r *ShareRepo) CreateShare(share *model.Share) error {
 	return r.db.Create(share).Error
 }

@@ -2,11 +2,14 @@
 import { ref, watch } from 'vue'
 import { chunkApi } from '../api/index.js'
 import { formatSize } from '../utils/format.js'
+import { useI18n } from '../i18n/index.js'
 import Modal from './Modal.vue'
 import SparkMD5 from 'spark-md5'
 
 const CHUNK_SIZE = 10 * 1024 * 1024
 const CONCURRENCY = 3
+
+const { t } = useI18n()
 
 const props = defineProps({
   visible: Boolean,
@@ -88,7 +91,7 @@ async function startUpload(file) {
 
   const hash = await computeMD5(file)
   if (!hash) {
-    error.value = 'Hash computation failed'
+    error.value = t('error.hashFailed')
     phase.value = 'error'
     return
   }
@@ -163,14 +166,14 @@ async function startUpload(file) {
     task.value.progress = 100
     emit('uploaded')
   } catch (e) {
-    error.value = e.message || 'Upload failed'
+    error.value = e.message || t('error.uploadFailed')
     phase.value = 'error'
   }
 }
 </script>
 
 <template>
-  <Modal :visible="visible" title="[#] LARGE FILE UPLOAD" @close="emit('close')">
+  <Modal :visible="visible" :title="t('chunk.title')" @close="emit('close')">
     <div class="chunk-modal">
       <div
         class="dropzone"
@@ -186,9 +189,9 @@ async function startUpload(file) {
           @change="onFileSelect"
         />
         <div class="dropzone-inner">
-          <span v-if="phase === 'hashing'">[..] Computing hash…</span>
-          <span v-else-if="phase === 'uploading'">[..] Uploading…</span>
-          <span v-else>[+] Select or drop a large file</span>
+          <span v-if="phase === 'hashing'">[..] {{ t('chunk.computingHash') }}</span>
+          <span v-else-if="phase === 'uploading'">[..] {{ t('chunk.uploading') }}</span>
+          <span v-else>[+] {{ t('chunk.selectFile') }}</span>
         </div>
       </div>
 
@@ -199,14 +202,14 @@ async function startUpload(file) {
           <span
             class="badge"
             :class="phase === 'done' ? 'badge-green' : phase === 'error' ? 'badge-red' : 'badge-accent'"
-          >{{ phase.toUpperCase() }}</span>
+          >{{ t('chunk.' + phase) || phase.toUpperCase() }}</span>
         </div>
         <div class="progress-bar">
           <div class="fill" :style="{ width: task.progress + '%' }"></div>
         </div>
         <div v-if="phase === 'uploading'" class="task-stats">
-          <span>Chunks: {{ task.completed }} / {{ task.chunkCount }}</span>
-          <span v-if="task.skipped > 0">({{ task.skipped }} skipped)</span>
+          <span>{{ t('chunk.chunks') }}: {{ task.completed }} / {{ task.chunkCount }}</span>
+          <span v-if="task.skipped > 0">({{ task.skipped }} {{ t('chunk.skipped') }})</span>
         </div>
       </div>
 

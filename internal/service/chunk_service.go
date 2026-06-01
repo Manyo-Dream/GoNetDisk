@@ -29,6 +29,7 @@ type ChunkService struct {
 	chunkRepo   *repository.ChunkRepo
 	fileService *FileService
 	config      *configs.Config
+	txManager   *repository.TxManager
 }
 
 func NewChunkService(
@@ -39,6 +40,7 @@ func NewChunkService(
 	chunkRepo *repository.ChunkRepo,
 	fileService *FileService,
 	config *configs.Config,
+	txManager *repository.TxManager,
 ) *ChunkService {
 	return &ChunkService{
 		redis:       redis,
@@ -48,6 +50,7 @@ func NewChunkService(
 		chunkRepo:   chunkRepo,
 		fileService: fileService,
 		config:      config,
+		txManager:   txManager,
 	}
 }
 
@@ -71,7 +74,7 @@ func (ch *ChunkService) InitChunkUpload(userID uint64, req *api.ChunkInitRequest
 		return nil, util.Internal("查询用户失败")
 	}
 
-	if userInfo.Used_Space+uint64(req.FileSize) > userInfo.Total_Space {
+	if userInfo.UsedSpace+uint64(req.FileSize) > userInfo.TotalSpace {
 		return nil, util.BadRequest("用户空间不足")
 	}
 
@@ -102,7 +105,7 @@ func (ch *ChunkService) InitChunkUpload(userID uint64, req *api.ChunkInitRequest
 		if err != nil {
 			return nil, util.Internal("查询物理文件失败")
 		}
-		return ch.instantUpload(userID, req, physicalUintID, phyFile)
+		return ch.instantUpload(userID, physicalUintID, req, phyFile)
 	}
 
 	// 2. 缓存未命中，查数据库
@@ -113,7 +116,7 @@ func (ch *ChunkService) InitChunkUpload(userID uint64, req *api.ChunkInitRequest
 	if err == nil {
 		// 数据库命中 → 缓存物理文件 ID + 秒传
 		ch.redis.Set(ctx, cacheKey, phyFile.ID, time.Hour)
-		return ch.instantUpload(userID, req, phyFile.ID, phyFile)
+		return ch.instantUpload(userID, phyFile.ID, req, phyFile)
 	}
 
 	// 3. 新文件 → 生成 UploadID，走分片上传流程
@@ -180,36 +183,6 @@ func (ch *ChunkService) InitChunkUpload(userID uint64, req *api.ChunkInitRequest
 		ChunkSize:     req.ChunkSize,
 		ChunkCount:    chunkCount,
 		InstantUpload: false,
-	}, nil
-}
-
-// instantUpload 秒传
-func (ch *ChunkService) instantUpload(
-	userID uint64,
-	req *api.ChunkInitRequest,
-	physicalID uint64,
-	phyFile *model.PhysicalFile,
-) (*api.ChunkInitResponse, error) {
-	if err := ch.fileRepo.IncrPhyFileRefCount(physicalID, 1); err != nil {
-		return nil, util.Internal("更新文件引用数失败")
-	}
-
-	metaData, err := ch.fileService.createUserFileRecord(
-		userID,
-		uint64(req.ParentID),
-		physicalID,
-		phyFile,
-	)
-	if err != nil {
-		return nil, util.Internal("创建用户文件记录失败")
-	}
-
-	return &api.ChunkInitResponse{
-		UploadID:      "",
-		ChunkSize:     0,
-		ChunkCount:    0,
-		InstantUpload: true,
-		UserFileID:    metaData.UserFileID,
 	}, nil
 }
 
@@ -346,16 +319,31 @@ func (ch *ChunkService) CompleteChunkUpload(userID uint64, req *api.ChunkComplet
 		core := minio.Core{Client: ch.minio}
 		core.AbortMultipartUpload(ctx, ch.config.Minio.Bucket, objectKey, minioUploadID)
 
-		if err := ch.fileRepo.IncrPhyFileRefCount(existingPhy.ID, 1); err != nil {
-			return nil, util.Internal("更新文件引用数失败")
-		}
+		var result *api.FileUploadResponse
+		// 开启事务
+		err = ch.txManager.Transaction(func(tx *gorm.DB) error {
+			txFileRepo := ch.fileRepo.WithTx(tx)
+			txChunkRepo := ch.chunkRepo.WithTx(tx)
+			txUserRepo := ch.userRepo.WithTx(tx)
 
-		result, err := ch.fileService.createUserFileRecord(userID, parentID, existingPhy.ID, existingPhy)
+			if err := txFileRepo.IncrPhyFileRefCount(existingPhy.ID, 1); err != nil {
+				return err
+			}
+
+			result, err = createUserFileRecord(txFileRepo, txUserRepo, userID, parentID, existingPhy.ID, existingPhy)
+			if err != nil {
+				return err
+			}
+
+			if err := txChunkRepo.UpdateStatus(req.UploadID, model.ChunkStatusCompleted); err != nil {
+				return err
+			}
+			return nil
+		})
 		if err != nil {
-			return nil, util.Internal("创建用户文件记录失败")
+			return nil, util.Internal(fmt.Sprintf("秒传事务失败: %s", err))
 		}
 
-		ch.chunkRepo.UpdateStatus(req.UploadID, model.ChunkStatusCompleted)
 		ch.redis.Del(ctx, metaKey, partsKey, etagsKey)
 
 		return &api.ChunkCompleteResponse{
@@ -406,6 +394,9 @@ func (ch *ChunkService) CompleteChunkUpload(userID uint64, req *api.ChunkComplet
 	}
 
 	fileExt := strings.ToLower(filepath.Ext(meta["fileName"]))
+
+	var result *api.FileUploadResponse
+
 	phyFile := &model.PhysicalFile{
 		FileHash:    fileHash,
 		FileName:    meta["fileName"],
@@ -416,24 +407,32 @@ func (ch *ChunkService) CompleteChunkUpload(userID uint64, req *api.ChunkComplet
 		RefCount:    1,
 	}
 
-	if err := ch.fileRepo.CreatePhyFile(phyFile); err != nil {
-		return nil, util.Internal("创建物理文件记录失败")
+	err = ch.txManager.Transaction(func(tx *gorm.DB) error {
+		txFileRepo := ch.fileRepo.WithTx(tx)
+		txChunkRepo := ch.chunkRepo.WithTx(tx)
+		txUserRepo := ch.userRepo.WithTx(tx)
+
+		if err := txFileRepo.CreatePhyFile(phyFile); err != nil {
+			return err
+		}
+
+		result, err = createUserFileRecord(txFileRepo, txUserRepo, userID, parentID, phyFile.ID, phyFile)
+		if err != nil {
+			return err
+		}
+
+		if err := txChunkRepo.UpdateStatus(req.UploadID, model.ChunkStatusCompleted); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, util.Internal(fmt.Sprintf("事务执行失败: %s", err))
 	}
 
-	// —— Redis 缓存 hash → physicalID（秒传用） ——
+	// —— Redis 缓存在事务外处理 ——
 	cacheKey := "hash:" + fileHash
 	ch.redis.Set(ctx, cacheKey, phyFile.ID, time.Hour)
-
-	// —— 创建用户文件记录 ——
-	result, err := ch.fileService.createUserFileRecord(userID, parentID, phyFile.ID, phyFile)
-	if err != nil {
-		return nil, util.Internal("创建用户文件记录失败")
-	}
-
-	// —— 更新 MySQL 状态 ——
-	ch.chunkRepo.UpdateStatus(req.UploadID, model.ChunkStatusCompleted)
-
-	// —— 清理 Redis 临时数据 ——
 	ch.redis.Del(ctx, metaKey, partsKey, etagsKey)
 
 	return &api.ChunkCompleteResponse{
@@ -483,7 +482,47 @@ func (ch *ChunkService) GetChunkStatus(userID uint64, req *api.ChunkStatusReques
 	}, nil
 }
 
-func (ch *ChunkService) buildStatusFromRedis(ctx context.Context, userID uint64, uploadID string, meta map[string]string) (*api.ChunkStatusResponse, error) {
+func (ch *ChunkService) instantUpload(
+	userID, physicalID uint64,
+	req *api.ChunkInitRequest,
+	phyFile *model.PhysicalFile,
+) (*api.ChunkInitResponse, error) {
+	var metaData *api.FileUploadResponse
+
+	err := ch.txManager.Transaction(func(tx *gorm.DB) error {
+		txFileRepo := ch.fileRepo.WithTx(tx)
+		txUserRepo := ch.userRepo.WithTx(tx)
+
+		if err := txFileRepo.IncrPhyFileRefCount(physicalID, 1); err != nil {
+			return err
+		}
+
+		var err error
+		metaData, err = createUserFileRecord(txFileRepo, txUserRepo, userID, uint64(req.ParentID), physicalID, phyFile)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, util.Internal(fmt.Sprintf("秒传事务失败: %s", err))
+	}
+
+	return &api.ChunkInitResponse{
+		UploadID:      "",
+		ChunkSize:     0,
+		ChunkCount:    0,
+		InstantUpload: true,
+		UserFileID:    metaData.UserFileID,
+	}, nil
+}
+
+func (ch *ChunkService) buildStatusFromRedis(
+	ctx context.Context,
+	userID uint64,
+	uploadID string,
+	meta map[string]string,
+) (*api.ChunkStatusResponse, error) {
 	metaUserID, err := strconv.ParseUint(meta["userID"], 10, 64)
 	if err != nil || metaUserID != userID {
 		return nil, util.Forbidden("无权查看此上传任务")

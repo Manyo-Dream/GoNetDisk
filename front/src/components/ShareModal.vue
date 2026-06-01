@@ -1,6 +1,9 @@
 <script setup>
 import { ref, watch } from 'vue'
+import { useI18n } from '../i18n/index.js'
 import Modal from './Modal.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   visible: Boolean,
@@ -41,16 +44,16 @@ function handleSubmit() {
 </script>
 
 <template>
-  <Modal :visible="visible" title="[<>] CREATE SHARE LINK" @close="emit('close')">
+  <Modal :visible="visible" :title="t('shares.createLink')" @close="emit('close')">
     <div class="share-form">
       <div class="file-hint">{{ fileName }}</div>
 
       <div class="field">
-        <span>EXPIRATION</span>
+        <span>{{ t('shares.expiration') }}</span>
         <div class="expire-options">
           <button
             type="button"
-            v-for="opt in [{v:0,l:'NEVER'},{v:1,l:'1 DAY'},{v:7,l:'7 DAYS'},{v:30,l:'30 DAYS'}]"
+            v-for="opt in [{v:0,l:t('shares.never')},{v:1,l:t('shares.day')},{v:7,l:t('shares.days',{n:7})},{v:30,l:t('shares.days',{n:30})}]"
             :key="opt.v"
             class="btn btn-sm"
             :class="{ 'btn-primary': expirePreset === opt.v }"
@@ -60,29 +63,29 @@ function handleSubmit() {
       </div>
 
       <div class="field">
-        <span>EXTRACTION CODE <em>(optional)</em></span>
+        <span>{{ t('shares.extractionCodeOptional') }} <em>{{ t('shares.optionalHint') }}</em></span>
         <div v-if="!showCustomCode" class="code-toggle">
-          <button type="button" class="btn btn-sm" @click="showCustomCode = true">[+] SET CODE</button>
+          <button type="button" class="btn btn-sm" @click="showCustomCode = true">[+] {{ t('shares.setCode') }}</button>
         </div>
         <div v-else class="code-input-row">
           <input
             v-model="code"
-            placeholder="enter or generate…"
+            :placeholder="t('shares.enterOrGenerate')"
             maxlength="16"
             spellcheck="false"
             @keyup.enter="handleSubmit"
           />
-          <button type="button" class="btn btn-sm" @click="generateCode">[*] RANDOM</button>
+          <button type="button" class="btn btn-sm" @click="generateCode">[*] {{ t('shares.random') }}</button>
         </div>
         <label class="include-check" v-if="code">
           <input type="checkbox" class="cb" v-model="includeInLink" />
-          <span>Include code in shared link</span>
+          <span>{{ t('shares.includeCode') }}</span>
         </label>
       </div>
 
       <div class="modal-actions">
-        <button type="button" class="btn btn-sm" @click="emit('close')">CANCEL</button>
-        <button type="button" class="btn btn-sm btn-primary" @click="handleSubmit">[<>] CREATE</button>
+        <button type="button" class="btn btn-sm" @click="emit('close')">{{ t('common.cancel') }}</button>
+        <button type="button" class="btn btn-sm btn-primary" @click="handleSubmit">[<>] {{ t('shares.createLink') }}</button>
       </div>
     </div>
   </Modal>

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"GoNetDisk/internal/model"
 	"GoNetDisk/internal/repository"
 	"GoNetDisk/internal/util"
 	"net/http"
@@ -44,18 +45,20 @@ func AuthMiddleware(jwtManager *util.JWTManager, userRepo *repository.UserRepo) 
 		}
 
 		user, err := userRepo.GetUserByID(userID)
-		if err != nil || user.Status != 0 {
+		if err != nil || user.Status != model.UserStatusNormal {
 			ctx.JSON(http.StatusForbidden, gin.H{"error": "用户已被禁用"})
 			ctx.Abort()
 			return
 		}
 
-		ctx.Set("userID", claims.RegisteredClaims.Subject)
-		ctx.Set("username", claims.Username)
-		ctx.Set("email", claims.Email)
+		ctx.Set("userID", userID)
+		ctx.Set("username", user.Username)
+		ctx.Set("email", user.Email)
+
 		ctx.Next()
 	}
 }
+
 func GetUsername(ctx *gin.Context) (string, bool) {
 	username, exists := ctx.Get("username")
 	if !exists {
@@ -63,6 +66,7 @@ func GetUsername(ctx *gin.Context) (string, bool) {
 	}
 	return username.(string), true
 }
+
 func GetEmail(ctx *gin.Context) (string, bool) {
 	email, exists := ctx.Get("email")
 	if !exists {
@@ -71,15 +75,12 @@ func GetEmail(ctx *gin.Context) (string, bool) {
 	v, ok := email.(string)
 	return v, ok
 }
+
 func GetUserID(ctx *gin.Context) (uint64, bool) {
 	userID, exists := ctx.Get("userID")
 	if !exists {
 		return 0, false
 	}
-	vStr, ok := userID.(string)
-	v, err := strconv.ParseUint(vStr, 10, 64)
-	if err != nil {
-		return 0, false
-	}
+	v, ok := userID.(uint64)
 	return v, ok
 }

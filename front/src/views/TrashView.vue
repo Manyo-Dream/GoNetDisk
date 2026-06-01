@@ -1,10 +1,12 @@
 <script setup>
 import { ref, computed, watch, onMounted, inject } from 'vue'
-import { trashApi, fileApi, folderApi } from '../api/index.js'
+import { trashApi } from '../api/index.js'
 import { formatSize, formatDate } from '../utils/format.js'
+import { useI18n } from '../i18n/index.js'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 
 const toast = inject('toast')
+const { t } = useI18n()
 
 const items = ref([])
 const loading = ref(false)
@@ -36,7 +38,7 @@ function showConfirm(title, message, danger, confirmText, cb) {
     title,
     message,
     danger,
-    confirmText: confirmText || 'CONFIRM',
+    confirmText: confirmText || t('common.confirm'),
     onConfirm: cb,
   }
 }
@@ -80,10 +82,10 @@ async function fetchTrash() {
 
 async function handleRestore(item) {
   showConfirm(
-    `[+] RESTORE: ${item.file_name}`,
-    `Restore "${item.file_name}" back to its original location?`,
+    t('trash.restoreTitle', { name: item.file_name }),
+    t('trash.restoreMessage', { name: item.file_name }),
     false,
-    'RESTORE',
+    t('trash.restoreBtn'),
     async () => {
       try {
         if (item.is_dir) await trashApi.restoreFolder(item.id)
@@ -100,10 +102,10 @@ async function handleBatchRestore() {
   const selected = items.value.filter(f => selectedSet.value.has(f.id))
   if (selected.length === 0) return
   showConfirm(
-    `[+] BATCH RESTORE: ${selected.length} items`,
-    `Restore ${selected.length} items back to their original locations?`,
+    t('trash.batchRestoreTitle', { count: selected.length }),
+    t('trash.batchRestoreMessage', { count: selected.length }),
     false,
-    'RESTORE',
+    t('trash.restoreBtn'),
     async () => {
       try {
         for (const item of selected) {
@@ -122,15 +124,15 @@ async function handleBatchDelete() {
   const selected = items.value.filter(f => selectedSet.value.has(f.id))
   if (selected.length === 0) return
   showConfirm(
-    `[x] PERMANENT DELETE: ${selected.length} items`,
-    `This will permanently delete ${selected.length} items.\nThis action CANNOT be undone.`,
+    t('trash.batchDeleteTitle', { count: selected.length }),
+    t('trash.batchDeleteMessage', { count: selected.length }),
     true,
-    'DELETE FOREVER',
+    t('trash.deleteForeverBtn'),
     async () => {
       try {
         for (const item of selected) {
-          if (item.is_dir) await folderApi.remove(item.id)
-          else await fileApi.remove(item.id)
+          if (item.is_dir) await trashApi.removeFolder(item.id)
+          else await trashApi.removeFile(item.id)
         }
         fetchTrash()
       } catch (e) {
@@ -143,15 +145,15 @@ async function handleBatchDelete() {
 async function handleDeleteAll() {
   if (items.value.length === 0) return
   showConfirm(
-    `[x] EMPTY TRASH`,
-    `This will permanently delete ALL ${items.value.length} items in trash.\nThis action CANNOT be undone.`,
+    t('trash.emptyTitle'),
+    t('trash.emptyMessage', { count: items.value.length }),
     true,
-    'DELETE ALL',
+    t('trash.deleteAllBtn'),
     async () => {
       try {
         for (const item of items.value) {
-          if (item.is_dir) await folderApi.remove(item.id)
-          else await fileApi.remove(item.id)
+          if (item.is_dir) await trashApi.removeFolder(item.id)
+          else await trashApi.removeFile(item.id)
         }
         fetchTrash()
       } catch (e) {
@@ -163,14 +165,14 @@ async function handleDeleteAll() {
 
 async function handlePermanentDelete(item) {
   showConfirm(
-    `[x] PERMANENTLY DELETE: ${item.file_name}`,
-    `This will permanently delete "${item.file_name}".\nThis action CANNOT be undone. Continue?`,
+    t('trash.permanentDeleteTitle', { name: item.file_name }),
+    t('trash.permanentDeleteMessage', { name: item.file_name }),
     true,
-    'DELETE FOREVER',
+    t('trash.deleteForeverBtn'),
     async () => {
       try {
-        if (item.is_dir) await folderApi.remove(item.id)
-        else await fileApi.remove(item.id)
+        if (item.is_dir) await trashApi.removeFolder(item.id)
+        else await trashApi.removeFile(item.id)
         fetchTrash()
       } catch (e) {
         toast('! ' + e.message)
@@ -180,16 +182,16 @@ async function handlePermanentDelete(item) {
 }
 
 function fileIcon(item) {
-  if (item.is_dir) return { label: '[DIR]', cls: 'fi-dir' }
+  if (item.is_dir) return { label: '[' + t('files.fileType.dir') + ']', cls: 'fi-dir' }
   const ext = (item.file_ext || '').toLowerCase()
-  if (['.jpg','.jpeg','.png','.gif','.svg','.webp','.bmp','.ico'].includes(ext)) return { label: '[IMG]', cls: 'fi-img' }
-  if (['.mp4','.mkv','.avi','.mov','.webm','.flv','.wmv'].includes(ext)) return { label: '[VID]', cls: 'fi-vid' }
-  if (['.mp3','.wav','.flac','.ogg','.aac','.wma','.m4a'].includes(ext)) return { label: '[AUD]', cls: 'fi-aud' }
-  if (['.zip','.rar','.7z','.tar','.gz','.bz2','.xz'].includes(ext)) return { label: '[ZIP]', cls: 'fi-zip' }
-  if (['.pdf'].includes(ext)) return { label: '[PDF]', cls: 'fi-pdf' }
-  if (['.doc','.docx','.xls','.xlsx','.ppt','.pptx'].includes(ext)) return { label: '[DOC]', cls: 'fi-doc' }
-  if (['.txt','.md','.log','.csv'].includes(ext)) return { label: '[TXT]', cls: 'fi-txt' }
-  if (['.js','.ts','.jsx','.tsx','.vue','.py','.go','.rs','.java','.c','.cpp','.h','.json','.xml','.html','.css','.scss','.yaml','.toml','.sh','.bat'].includes(ext)) return { label: '[COD]', cls: 'fi-code' }
+  if (['.jpg','.jpeg','.png','.gif','.svg','.webp','.bmp','.ico'].includes(ext)) return { label: '[' + t('files.fileType.img') + ']', cls: 'fi-img' }
+  if (['.mp4','.mkv','.avi','.mov','.webm','.flv','.wmv'].includes(ext)) return { label: '[' + t('files.fileType.vid') + ']', cls: 'fi-vid' }
+  if (['.mp3','.wav','.flac','.ogg','.aac','.wma','.m4a'].includes(ext)) return { label: '[' + t('files.fileType.aud') + ']', cls: 'fi-aud' }
+  if (['.zip','.rar','.7z','.tar','.gz','.bz2','.xz'].includes(ext)) return { label: '[' + t('files.fileType.zip') + ']', cls: 'fi-zip' }
+  if (['.pdf'].includes(ext)) return { label: '[' + t('files.fileType.pdf') + ']', cls: 'fi-pdf' }
+  if (['.doc','.docx','.xls','.xlsx','.ppt','.pptx'].includes(ext)) return { label: '[' + t('files.fileType.doc') + ']', cls: 'fi-doc' }
+  if (['.txt','.md','.log','.csv'].includes(ext)) return { label: '[' + t('files.fileType.txt') + ']', cls: 'fi-txt' }
+  if (['.js','.ts','.jsx','.tsx','.vue','.py','.go','.rs','.java','.c','.cpp','.h','.json','.xml','.html','.css','.scss','.yaml','.toml','.sh','.bat'].includes(ext)) return { label: '[' + t('files.fileType.code') + ']', cls: 'fi-code' }
   return { label: '[   ]', cls: 'fi-other' }
 }
 
@@ -199,19 +201,19 @@ onMounted(fetchTrash)
 <template>
   <div class="trash-view">
     <div class="view-header">
-      <h2>[x] TRASH</h2>
-      <span class="count">{{ total }} items</span>
+      <h2>[x] {{ t('trash.title') }}</h2>
+      <span class="count">{{ t('trash.items', { count: total }) }}</span>
       <div class="header-actions">
-        <button v-if="items.length > 0" class="btn btn-sm btn-danger" @click="handleDeleteAll">[X] EMPTY TRASH</button>
+        <button v-if="items.length > 0" class="btn btn-sm btn-danger" @click="handleDeleteAll">[X] {{ t('trash.emptyTrash') }}</button>
       </div>
     </div>
 
     <Teleport to="body">
       <div v-if="selectedCount > 0" class="fixed-batch-bar">
-      <span class="count">{{ selectedCount }} selected</span>
-      <button class="btn btn-sm" @click="handleBatchRestore">[+] RESTORE</button>
-      <button class="btn btn-sm btn-danger" @click="handleBatchDelete">[x] DELETE FOREVER</button>
-      <button class="btn btn-sm" @click="selectedSet = new Set(); selectAll = false">[X] CANCEL</button>
+      <span class="count">{{ t('files.batchBar', { count: selectedCount }) }}</span>
+      <button class="btn btn-sm" @click="handleBatchRestore">[+] {{ t('trash.restoreBtn') }}</button>
+      <button class="btn btn-sm btn-danger" @click="handleBatchDelete">[x] {{ t('trash.deleteForeverBtn') }}</button>
+      <button class="btn btn-sm" @click="selectedSet = new Set(); selectAll = false">[X] {{ t('trash.cancelBtn') }}</button>
     </div>
     </Teleport>
 
@@ -220,10 +222,10 @@ onMounted(fetchTrash)
         <thead>
           <tr>
             <th style="width:30px"><input type="checkbox" class="cb" :checked="selectAll" @click.stop="toggleSelectAll" /></th>
-            <th style="width:56px"></th>
-            <th>NAME</th>
-            <th style="width:100px">SIZE</th>
-            <th style="width:140px">DELETED</th>
+            <th style="width:80px"></th>
+            <th>{{ t('common.name') }}</th>
+            <th style="width:100px">{{ t('common.size') }}</th>
+            <th style="width:140px">{{ t('common.deleted') }}</th>
             <th style="width:120px"></th>
           </tr>
         </thead>
@@ -238,8 +240,8 @@ onMounted(fetchTrash)
             <td class="td-date">{{ formatDate(item.deleted_at || item.updated_at) }}</td>
             <td class="td-actions">
               <span class="actions">
-                <button class="btn btn-icon btn-sm" title="RESTORE" aria-label="Restore item" @click="handleRestore(item)">[+]</button>
-                <button class="btn btn-icon btn-sm btn-rm" title="DELETE FOREVER" aria-label="Permanently delete item" @click="handlePermanentDelete(item)">[x]</button>
+                <button class="btn btn-icon btn-sm" :title="t('trash.restoreBtn')" aria-label="Restore item" @click="handleRestore(item)">[+]</button>
+                <button class="btn btn-icon btn-sm btn-rm" :title="t('trash.deleteForeverBtn')" aria-label="Permanently delete item" @click="handlePermanentDelete(item)">[x]</button>
               </span>
             </td>
           </tr>
@@ -248,12 +250,12 @@ onMounted(fetchTrash)
     </div>
 
     <div v-else-if="loading" class="empty-state">
-      <span class="cursor-blink">_</span> LOADING…
+      <span class="cursor-blink">_</span> {{ t('common.loading') }}
     </div>
 
     <div v-else class="empty-state">
       <span class="icon">[ok]</span>
-      <span>TRASH IS EMPTY</span>
+      <span>{{ t('trash.emptyState') }}</span>
     </div>
 
     <ConfirmDialog
@@ -298,6 +300,7 @@ h2 {
   text-align: center;
 }
 .td-icon {
+  white-space: nowrap;
   font-size: var(--fs-xs);
   font-weight: 600;
 }

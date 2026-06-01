@@ -14,6 +14,11 @@ func NewUserRepo(db *gorm.DB) *UserRepo {
 	return &UserRepo{db: db}
 }
 
+// WithTx 返回绑定到事务的新实例
+func (r *UserRepo) WithTx(tx *gorm.DB) *UserRepo {
+	return &UserRepo{db: tx}
+}
+
 func (r *UserRepo) Create(user *model.User) error {
 	return r.db.Create(user).Error
 }

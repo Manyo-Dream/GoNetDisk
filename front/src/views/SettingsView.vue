@@ -2,8 +2,10 @@
 import { ref, onMounted, inject } from 'vue'
 import { userApi } from '../api/index.js'
 import { formatSize } from '../utils/format.js'
+import { useI18n } from '../i18n/index.js'
 
 const userInfo = inject('userInfo')
+const { t } = useI18n()
 const space = ref(null)
 const username = ref('')
 const editing = ref(false)
@@ -40,40 +42,40 @@ onMounted(fetchData)
 <template>
   <div class="settings-view">
     <div class="view-header">
-      <h2>[~] SETTINGS</h2>
+      <h2>[~] {{ t('settings.title') }}</h2>
     </div>
 
     <div class="settings-grid">
       <div class="card">
-        <div class="card-title">ACCOUNT</div>
+        <div class="card-title">{{ t('settings.account') }}</div>
         <div class="info-row" v-if="userInfo">
-          <span>EMAIL</span>
+          <span>{{ t('settings.email') }}</span>
           <span>{{ userInfo.email }}</span>
         </div>
         <div class="info-row" v-if="userInfo">
-          <span>USERNAME</span>
+          <span>{{ t('settings.username') }}</span>
           <span v-if="!editing">{{ userInfo.username || '--' }}</span>
         </div>
 
         <div v-if="editing" class="edit-form">
           <label>
-            <span>NEW USERNAME</span>
+            <span>{{ t('settings.newUsername') }}</span>
             <input v-model="username" @keyup.enter="saveInfo" />
           </label>
           <div v-if="error" class="error-msg">! {{ error }}</div>
           <div class="btn-row">
-            <button class="btn btn-sm" @click="editing = false">CANCEL</button>
-            <button class="btn btn-sm btn-primary" @click="saveInfo">SAVE</button>
+            <button class="btn btn-sm" @click="editing = false">{{ t('common.cancel') }}</button>
+            <button class="btn btn-sm btn-primary" @click="saveInfo">{{ t('common.save') }}</button>
           </div>
         </div>
 
         <button v-if="!editing" class="btn btn-sm" style="margin-top:var(--gap-3)" @click="editing = true">
-          [r] EDIT
+          [r] {{ t('common.edit') }}
         </button>
       </div>
 
       <div class="card">
-        <div class="card-title">STORAGE</div>
+        <div class="card-title">{{ t('settings.storage') }}</div>
         <div v-if="space" class="storage-info">
           <div class="storage-bar-wrap">
             <div class="progress-bar" style="height:12px">
@@ -82,15 +84,15 @@ onMounted(fetchData)
           </div>
           <div class="storage-numbers">
             <div class="num-block">
-              <span class="num-label">USED</span>
+              <span class="num-label">{{ t('settings.used') }}</span>
               <span class="num-value">{{ formatSize(space.used_space) }}</span>
             </div>
             <div class="num-block">
-              <span class="num-label">TOTAL</span>
-              <span class="num-value">{{ space.total_space > 0 ? formatSize(space.total_space) : 'UNLIMITED' }}</span>
+              <span class="num-label">{{ t('settings.total') }}</span>
+              <span class="num-value">{{ space.total_space > 0 ? formatSize(space.total_space) : t('common.unlimited') }}</span>
             </div>
             <div class="num-block">
-              <span class="num-label">FREE</span>
+              <span class="num-label">{{ t('settings.free') }}</span>
               <span class="num-value">{{ space.total_space > 0 ? formatSize(space.total_space - space.used_space) : '--' }}</span>
             </div>
           </div>

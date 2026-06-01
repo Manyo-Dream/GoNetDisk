@@ -78,20 +78,17 @@ func main() {
 	gin.SetMode(cfg.Server.Mode)
 
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=%t&loc=%s",
-		cfg.Database.User,
-		cfg.Database.Password,
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable TimeZone=Asia/Shanghai",
 		cfg.Database.Host,
 		cfg.Database.Port,
+		cfg.Database.User,
+		cfg.Database.Password,
 		cfg.Database.Name,
-		cfg.Database.Charset,
-		cfg.Database.ParseTime,
-		cfg.Database.Loc,
 	)
 
-	db, err := database.InitDB(dsn)
+	db, err := database.InitDB(dsn, &cfg.Database)
 	if err != nil {
-		log.Fatal("初始化 Mysql 失败:", err)
+		log.Fatal("初始化 Postgres 失败:", err)
 	}
 
 	rdb, err := database.InitRedis(
@@ -106,7 +103,7 @@ func main() {
 
 	minioClient, err := storage.NewMinioClient(cfg.Minio)
 	if err != nil {
-		log.Fatalf("初始化 MinioClient 失败: %s", err)
+		log.Fatalf("初始化 Minio 失败: %s", err)
 	}
 
 	jwtManager := util.NewJWTManager(
@@ -122,7 +119,7 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 
 	log.Printf("配置文件路径: %s", cfgDir)
-	log.Printf("Mysql 端点: %d", cfg.Database.Port)
+	log.Printf("Postgres 端点: %d", cfg.Database.Port)
 	log.Printf("Redis 端点: %d", cfg.Redis.Port)
 	log.Printf("MinIO 端点: %s, Bucket: %s", cfg.Minio.Endpoint, cfg.Minio.Bucket)
 	log.Printf("运行模式: %s", cfg.Server.Mode)

@@ -2,9 +2,11 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { userApi, setTokens, isAuthenticated } from '../api/index.js'
+import { useI18n } from '../i18n/index.js'
 
 const router = useRouter()
 const route = useRoute()
+const { t } = useI18n()
 const email = ref('')
 const password = ref('')
 const error = ref('')
@@ -13,7 +15,7 @@ const loading = ref(false)
 async function handleLogin() {
   error.value = ''
   if (!email.value || !password.value) {
-    error.value = 'ALL FIELDS REQUIRED'
+    error.value = t('auth.allFieldsRequired')
     return
   }
   loading.value = true
@@ -36,29 +38,29 @@ async function handleLogin() {
       <div class="card-header">
         <span class="logo">[gnd]</span>
         <h1>GoNetDisk</h1>
-        <p>AUTHENTICATION REQUIRED</p>
+        <p>{{ t('auth.authenticationRequired') }}</p>
       </div>
 
       <form @submit.prevent="handleLogin" class="auth-form">
         <label>
-          <span>EMAIL</span>
-          <input v-model="email" type="email" name="email" placeholder="user@host…" autocomplete="email" spellcheck="false" />
+          <span>{{ t('auth.email') }}</span>
+          <input v-model="email" type="email" name="email" :placeholder="t('auth.emailPlaceholder')" autocomplete="email" spellcheck="false" />
         </label>
         <label>
-          <span>PASSPHRASE</span>
-          <input v-model="password" type="password" name="password" placeholder="········" autocomplete="current-password" />
+          <span>{{ t('auth.password') }}</span>
+          <input v-model="password" type="password" name="password" :placeholder="t('auth.passwordPlaceholder')" autocomplete="current-password" />
         </label>
 
         <div v-if="error" class="error-msg">! {{ error }}</div>
 
         <button type="submit" class="btn btn-primary" :disabled="loading">
           <span v-if="loading" class="cursor-blink">_</span>
-          <span v-else>[>] LOGIN</span>
+          <span v-else>[>] {{ t('auth.loginBtn') }}</span>
         </button>
       </form>
 
       <div class="card-footer">
-        <router-link to="/register">[+] CREATE ACCOUNT</router-link>
+        <router-link to="/register">[+] {{ t('auth.createAccount') }}</router-link>
       </div>
     </div>
   </div>

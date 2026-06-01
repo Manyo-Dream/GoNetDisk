@@ -54,9 +54,9 @@ func (s *UserService) Register(email, username, password string) (*api.RegisterR
 	}
 
 	user := &model.User{
-		Username:      username,
-		Email:         email,
-		Password_Hash: string(hashPassword),
+		Username:     username,
+		Email:        email,
+		PasswordHash: string(hashPassword),
 	}
 
 	err = s.userRepo.Create(user)
@@ -79,11 +79,11 @@ func (s *UserService) Login(email, password string) (*api.LoginResponse, error) 
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("查询用户失败: %s", err))
 	}
-	if user.Status == 1 {
+	if user.Status == model.UserStatusDisabled {
 		return nil, util.Forbidden("用户已被禁用")
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password_Hash), []byte(password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return nil, util.Unauthorized("密码错误")
 	}
 
@@ -150,8 +150,8 @@ func (s *UserService) RefreshToken(refreshToken string) (*api.RefreshResponse, e
 	}, nil
 }
 
-func (s *UserService) GetUserInfo(email string) (*api.UserInfoGetResponse, error) {
-	user, err := s.userRepo.GetByEmail(email)
+func (s *UserService) GetUserInfo(userID uint64) (*api.UserInfoGetResponse, error) {
+	user, err := s.userRepo.GetUserByID(userID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, util.NotFound("用户不存在")
 	}
@@ -162,7 +162,7 @@ func (s *UserService) GetUserInfo(email string) (*api.UserInfoGetResponse, error
 	return &api.UserInfoGetResponse{
 		Email:     user.Email,
 		Username:  user.Username,
-		AvatarUrl: user.Avatar_Url,
+		AvatarUrl: user.AvatarURL,
 	}, nil
 }
 
@@ -192,7 +192,7 @@ func (s *UserService) UpdateUserInfo(userID uint64, username, avatarUrl *string)
 	return &api.UserInfoUpdateResponse{
 		Email:     user.Email,
 		Username:  user.Username,
-		AvatarUrl: user.Avatar_Url,
+		AvatarUrl: user.AvatarURL,
 	}, nil
 }
 
@@ -206,7 +206,7 @@ func (s *UserService) GetUserSpace(userID uint64) (*api.UserSpaceResponse, error
 	}
 
 	return &api.UserSpaceResponse{
-		UsedSpace:  user.Used_Space,
-		TotalSpace: user.Total_Space,
+		UsedSpace:  user.UsedSpace,
+		TotalSpace: user.TotalSpace,
 	}, nil
 }

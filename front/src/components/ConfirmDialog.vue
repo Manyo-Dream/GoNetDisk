@@ -1,12 +1,15 @@
 <script setup>
+import { useI18n } from '../i18n/index.js'
 import Modal from './Modal.vue'
+
+const { t } = useI18n()
 
 const props = defineProps({
   visible: Boolean,
   title: String,
   message: String,
   danger: Boolean,
-  confirmText: { type: String, default: 'CONFIRM' },
+  confirmText: { type: String, default: '' },
 })
 
 const emit = defineEmits(['confirm', 'close'])
@@ -17,12 +20,12 @@ const emit = defineEmits(['confirm', 'close'])
     <div class="confirm-body">
       <p class="confirm-message">{{ message }}</p>
       <div class="confirm-actions">
-        <button class="btn btn-sm" @click="emit('close')">CANCEL</button>
+        <button class="btn btn-sm" @click="emit('close')">{{ t('common.cancel') }}</button>
         <button
           class="btn btn-sm"
           :class="danger ? 'btn-danger' : 'btn-primary'"
           @click="emit('confirm')"
-        >{{ confirmText }}</button>
+        >{{ confirmText || t('common.confirm') }}</button>
       </div>
     </div>
   </Modal>

@@ -2,11 +2,14 @@
 import { ref, watch } from 'vue'
 import { chunkApi, fileApi } from '../api/index.js'
 import { formatSize, formatChunkProgress } from '../utils/format.js'
+import { useI18n } from '../i18n/index.js'
 import Modal from './Modal.vue'
 import SparkMD5 from 'spark-md5'
 
 const CHUNK_SIZE = 10 * 1024 * 1024
 const CONCURRENCY = 3
+
+const { t } = useI18n()
 
 const props = defineProps({
   visible: Boolean,
@@ -92,7 +95,7 @@ async function startUpload(files) {
       name: file.name,
       size: file.size,
       progress: 0,
-      status: 'init',
+      status: t('chunk.init'),
       log: [],
       error: '',
     }
@@ -104,10 +107,10 @@ async function startUpload(files) {
       } else {
         await chunkUpload(file, task, parentId)
       }
-      task.status = 'done'
+      task.status = t('chunk.done')
     } catch (e) {
-      task.status = 'error'
-      task.error = e.message || 'Upload failed'
+      task.status = t('chunk.error')
+      task.error = e.message || t('error.uploadFailed')
     }
     task.progress = 100
   }
@@ -157,7 +160,7 @@ async function chunkUpload(file, task, parentId) {
   task.log.push('> computing hash…')
   const hash = await computeMD5(file)
   if (!hash) {
-    throw new Error('Hash computation failed')
+    throw new Error(t('error.hashFailed'))
   }
   task.log.push(`  hash: ${hash.slice(0, 16)}…`)
 
@@ -221,10 +224,10 @@ function targetPath() {
 </script>
 
 <template>
-  <Modal :visible="visible" title="[^] UPLOAD FILES" @close="emit('close')">
+  <Modal :visible="visible" :title="t('files.uploadModalTitle')" @close="emit('close')">
     <div class="upload-modal">
       <div class="section">
-        <div class="section-label">TARGET FOLDER</div>
+        <div class="section-label">{{ t('files.targetFolder') }}</div>
         <div class="folder-breadcrumb">
           <span
             class="fcrumb"
@@ -249,12 +252,12 @@ function targetPath() {
           >
             [DIR] {{ f.file_name }}
           </div>
-          <div v-if="targetFolders.length === 0" class="folder-empty">(empty)</div>
+          <div v-if="targetFolders.length === 0" class="folder-empty">{{ t('common.empty') }}</div>
         </div>
       </div>
 
       <div class="section">
-        <div class="section-label">SELECT FILES</div>
+        <div class="section-label">{{ t('files.selectFiles') }}</div>
         <div
           class="dropzone"
           :class="{ disabled: uploading }"
@@ -270,8 +273,8 @@ function targetPath() {
             @change="onFileSelect"
           />
           <div class="dropzone-inner">
-            <span v-if="uploading">[..] UPLOADING…</span>
-            <span v-else>[+] DROP FILES HERE OR CLICK TO SELECT</span>
+            <span v-if="uploading">[..] {{ t('files.uploading') }}</span>
+            <span v-else>[+] {{ t('files.dropHere') }}</span>
           </div>
         </div>
       </div>
@@ -283,7 +286,7 @@ function targetPath() {
             <span class="log-size">{{ formatSize(task.size) }}</span>
             <span
               class="badge"
-              :class="task.status === 'done' ? 'badge-green' : task.status === 'error' ? 'badge-red' : 'badge-accent'"
+              :class="task.status === t('chunk.done') ? 'badge-green' : task.status === t('chunk.error') ? 'badge-red' : 'badge-accent'"
             >{{ task.status.toUpperCase() }}</span>
           </div>
           <div class="progress-bar">
@@ -298,10 +301,10 @@ function targetPath() {
 
       <div class="modal-actions">
         <div class="actions-left">
-          <span class="target-hint">TO: {{ targetPath() }}</span>
+          <span class="target-hint">{{ t('files.targetHint') }} {{ targetPath() }}</span>
         </div>
         <div class="actions-right">
-          <button class="btn btn-sm" @click="emit('close')">CLOSE</button>
+          <button class="btn btn-sm" @click="emit('close')">{{ t('common.close') }}</button>
         </div>
       </div>
     </div>

@@ -1,8 +1,8 @@
 package router
 
 import (
-	"time"
 	"strings"
+	"time"
 
 	"GoNetDisk/configs"
 	"GoNetDisk/internal/controller"
@@ -25,19 +25,21 @@ func SetupRouter(db *gorm.DB, redis *redis.Client, minioClient *minio.Client, jw
 	userService := service.NewUserService(userRepo, jwtManager, redis)
 	userController := controller.NewUserController(userService)
 
+	txManager := repository.NewTxManager(db)
+
 	fileRepo := repository.NewFileRepo(db)
-	fileService := service.NewFileService(redis, minioClient, userRepo, fileRepo, jwtManager, config)
+	fileService := service.NewFileService(redis, minioClient, userRepo, fileRepo, jwtManager, config, txManager)
 	fileController := controller.NewFileController(fileService)
 
-	folderService := service.NewFolderService(redis, userRepo, fileRepo, jwtManager, minioClient, config)
+	folderService := service.NewFolderService(redis, userRepo, fileRepo, jwtManager, minioClient, config, txManager)
 	folderController := controller.NewFolderController(folderService)
 
 	taskRepo := repository.NewTaskRepo(db)
-	taskService := service.NewTaskService(userRepo, fileRepo, taskRepo, fileService, folderService, minioClient, jwtManager, config)
+	taskService := service.NewTaskService(userRepo, fileRepo, taskRepo, fileService, folderService, minioClient, jwtManager, config, txManager)
 	taskController := controller.NewTaskController(taskService)
 
 	chunkRepo := repository.NewChunkRepo(db)
-	chunkService := service.NewChunkService(redis, minioClient, userRepo, fileRepo, chunkRepo, fileService, config)
+	chunkService := service.NewChunkService(redis, minioClient, userRepo, fileRepo, chunkRepo, fileService, config, txManager)
 	chunkController := controller.NewChunkController(chunkService)
 
 	shareRepo := repository.NewShareRepo(db)
@@ -48,6 +50,7 @@ func SetupRouter(db *gorm.DB, redis *redis.Client, minioClient *minio.Client, jw
 
 	v1 := r.Group("/api/v1")
 	{
+		// ── 用户资源 ──
 		userHandler := v1.Group("/user")
 		{
 			userHandler.POST("/register",
@@ -67,58 +70,65 @@ func SetupRouter(db *gorm.DB, redis *redis.Client, minioClient *minio.Client, jw
 			userHandler.GET("/space", userController.GetUserSpace)
 		}
 
-		fileHandler := v1.Group("/file")
-		fileHandler.Use(middleware.AuthMiddleware(jwtManager, userRepo))
+		// ── 文件资源 ──
+		files := v1.Group("/files")
+		files.Use(middleware.AuthMiddleware(jwtManager, userRepo))
 		{
-			fileHandler.POST("/upload", fileController.UploadFile)
-			fileHandler.POST("/chunk/init", chunkController.InitChunkUpload)
-			fileHandler.POST("/chunk/upload", chunkController.UploadChunk)
-			fileHandler.POST("/chunk/complete", chunkController.CompleteChunkUpload)
-			fileHandler.GET("/chunk/status", chunkController.GetChunkStatus)
-			fileHandler.GET("/download/:userfile_id", fileController.DownloadFile)
-			fileHandler.DELETE("/delete/:userfile_id", fileController.MoveFileToTrash)
-			fileHandler.DELETE("/remove/:userfile_id", fileController.RemoveFile)
-			fileHandler.GET("/list", fileController.ReturnFileList)
-			fileHandler.PUT("/rename", fileController.RenameFile)
-			fileHandler.PUT("/move", fileController.MoveFile)
+			files.POST("", fileController.UploadFile)
+			files.GET("", fileController.ReturnFileList)
+			files.GET("/:userfile_id", fileController.DownloadFile)
+			files.PUT("/:userfile_id", fileController.RenameFile)
+			files.PATCH("/:userfile_id", fileController.MoveFile)
+			files.DELETE("/:userfile_id", fileController.MoveFileToTrash)
+
+			// 分片上传
+			files.POST("/chunks", chunkController.InitChunkUpload)
+			files.PUT("/chunks", chunkController.UploadChunk)
+			files.POST("/chunks/complete", chunkController.CompleteChunkUpload)
+			files.GET("/chunks/status", chunkController.GetChunkStatus)
 		}
 
-		folderHandler := v1.Group("/folder")
-		folderHandler.Use(middleware.AuthMiddleware(jwtManager, userRepo))
+		// ── 文件夹资源 ──
+		folders := v1.Group("/folders")
+		folders.Use(middleware.AuthMiddleware(jwtManager, userRepo))
 		{
-			folderHandler.POST("/create", folderController.CreateFolder)
-			folderHandler.DELETE("/delete/:userfolder_id", folderController.MoveFolderToTrash)
-			folderHandler.DELETE("/remove/:userfolder_id", folderController.RemoveFolder)
-			folderHandler.PUT("/rename", folderController.RenameFolder)
-			folderHandler.PUT("/move", folderController.MoveFolder)
+			folders.POST("", folderController.CreateFolder)
+			folders.PUT("/:userfolder_id", folderController.RenameFolder)
+			folders.PATCH("/:userfolder_id", folderController.MoveFolder)
+			folders.DELETE("/:userfolder_id", folderController.MoveFolderToTrash)
 		}
 
-		trashHandler := v1.Group("/trash")
-		trashHandler.Use(middleware.AuthMiddleware(jwtManager, userRepo))
+		// ── 回收站 ──
+		trash := v1.Group("/trash")
+		trash.Use(middleware.AuthMiddleware(jwtManager, userRepo))
 		{
-			trashHandler.GET("/list", fileController.ReturnTrashList)
-			trashHandler.POST("/file/:userfile_id", fileController.RestoreFile)
-			trashHandler.POST("/folder/:userfolder_id", folderController.RestoreFolder)
+			trash.GET("", fileController.ReturnTrashList)
+			trash.DELETE("/files/:userfile_id", fileController.RemoveFile)
+			trash.DELETE("/folders/:userfolder_id", folderController.RemoveFolder)
+			trash.POST("/files/:userfile_id/restore", fileController.RestoreFile)
+			trash.POST("/folders/:userfolder_id/restore", folderController.RestoreFolder)
 		}
 
-		taskHandler := v1.Group("/task")
-		taskHandler.Use(middleware.AuthMiddleware(jwtManager, userRepo))
+		// ── 上传任务 ──
+		tasks := v1.Group("/tasks")
+		tasks.Use(middleware.AuthMiddleware(jwtManager, userRepo))
 		{
-			taskHandler.POST("/create", taskController.CreateTaskAndRecords)
-			taskHandler.POST("/:task_id/file", taskController.UploadTaskFile)
-			taskHandler.GET("/:task_id/progress", taskController.GetTaskProgress)
+			tasks.POST("", taskController.CreateTaskAndRecords)
+			tasks.POST("/:task_id/files", taskController.UploadTaskFile)
+			tasks.GET("/:task_id", taskController.GetTaskProgress)
 		}
 
-		shareHandler := v1.Group("/share")
+		// ── 分享 ──
+		shares := v1.Group("/shares")
 		{
-			shareHandler.GET("/:share_code/info", shareController.GetShareInfo)
-			shareHandler.GET("/:share_code/download", shareController.DownloadSharedFile)
+			shares.GET("/:share_code", shareController.GetShareInfo)
+			shares.GET("/:share_code/download", shareController.DownloadSharedFile)
 		}
-		shareHandler.Use(middleware.AuthMiddleware(jwtManager, userRepo))
+		shares.Use(middleware.AuthMiddleware(jwtManager, userRepo))
 		{
-			shareHandler.POST("/create", shareController.CreateShare)
-			shareHandler.GET("/list", shareController.ListShares)
-			shareHandler.DELETE("/:share_code", shareController.RevokeShare)
+			shares.POST("", shareController.CreateShare)
+			shares.GET("", shareController.ListShares)
+			shares.DELETE("/:share_code", shareController.RevokeShare)
 		}
 	}
 	r.Static("/assets", "./front/dist/assets")

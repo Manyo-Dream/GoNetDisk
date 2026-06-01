@@ -3,8 +3,10 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { shareApi } from '../api/index.js'
 import { formatSize, formatDate } from '../utils/format.js'
+import { useI18n } from '../i18n/index.js'
 
 const route = useRoute()
+const { t } = useI18n()
 const info = ref(null)
 const loading = ref(true)
 const error = ref('')
@@ -17,7 +19,7 @@ const shareCode = computed(() => route.query.code || '')
 
 onMounted(async () => {
   if (!shareCode.value) {
-    error.value = 'Missing share code'
+    error.value = t('shares.missingCode')
     loading.value = false
     return
   }
@@ -39,7 +41,7 @@ onMounted(async () => {
 
 function handleDownload() {
   if (needsCode.value && !pwd.value) {
-    pwdError.value = 'Extraction code required'
+    pwdError.value = t('shares.extractionRequired')
     return
   }
   pwdError.value = ''
@@ -51,7 +53,7 @@ function handleDownload() {
 <template>
   <div class="share-page">
     <div v-if="loading" class="share-card">
-      <span class="cursor-blink">_</span> LOADING…
+      <span class="cursor-blink">_</span> {{ t('common.loading') }}
     </div>
 
     <div v-else-if="error" class="share-card">
@@ -62,31 +64,31 @@ function handleDownload() {
     <div v-else-if="info" class="share-card">
       <div class="card-header">
         <span class="logo">[<>]</span>
-        <h1>SHARED FILE</h1>
+        <h1>{{ t('shares.sharedFile') }}</h1>
       </div>
 
       <div class="file-info">
         <div class="info-row">
-          <span>NAME</span>
+          <span>{{ t('common.name') }}</span>
           <span class="val">{{ info.file_name }}</span>
         </div>
         <div class="info-row">
-          <span>SIZE</span>
+          <span>{{ t('common.size') }}</span>
           <span class="val">{{ formatSize(info.file_size) }}</span>
         </div>
         <div class="info-row">
-          <span>SHARED</span>
-          <span class="val">{{ formatDate(info.created_at) }}</span>
+          <span>{{ t('common.expires') }}</span>
+          <span class="val">{{ info.expire_at ? formatDate(info.expire_at) : t('common.never') }}</span>
         </div>
       </div>
 
       <div v-if="needsCode && !codeInUrl" class="pwd-section">
         <label>
-          <span>EXTRACTION CODE</span>
+          <span>{{ t('shares.extractionCode') }}</span>
           <input
             v-model="pwd"
             type="text"
-            placeholder="input code…"
+            :placeholder="t('shares.inputCode')"
             @keyup.enter="handleDownload"
             autocomplete="off"
           />
@@ -96,12 +98,12 @@ function handleDownload() {
 
       <div class="card-actions">
         <button class="btn btn-primary" @click="handleDownload">
-          [v] DOWNLOAD
+          [v] {{ t('shares.downloadBtn') }}
         </button>
       </div>
 
       <div class="card-footer">
-        <router-link to="/">[&lt;] BACK TO GONETDISK</router-link>
+        <router-link to="/">[&lt;] {{ t('shares.backToApp') }}</router-link>
       </div>
     </div>
   </div>

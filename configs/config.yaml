@@ -11,20 +11,21 @@ redis:
 
 minio:
   endpoint: "localhost:9000"
-  accesskey: "gonetdisk"
-  secretkey: "gonetdisk"
+  accesskey: "GoNetDisk"
+  secretkey: "GoNetDisk"
   bucket: "gonetdisk"
   usessl: false
 
 database:
   host: "localhost"
-  port: 3306
-  user: "root"
-  password: "gonetdisk"
-  name: "gonetdisk"
-  charset: "utf8mb4"
-  parseTime: true
-  loc: "Local"
+  port: 5432
+  user: "GoNetDisk"
+  password: "GoNetDisk"
+  name: "GoNetDisk"
+  max_open_conns: 50
+  max_idle_conns: 20
+  conn_max_lifetime_min: 30
+  conn_max_idle_time_min: 5
 
 jwt:
   secret: "123321"

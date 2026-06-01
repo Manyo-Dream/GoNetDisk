@@ -2,10 +2,11 @@
 import { ref, onMounted, inject } from 'vue'
 import { shareApi } from '../api/index.js'
 import { formatDate } from '../utils/format.js'
-
+import { useI18n } from '../i18n/index.js'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 
 const toast = inject('toast')
+const { t } = useI18n()
 
 const shares = ref([])
 const loading = ref(false)
@@ -25,7 +26,7 @@ function showConfirm(title, message, danger, confirmText, cb) {
     title,
     message,
     danger,
-    confirmText: confirmText || 'CONFIRM',
+    confirmText: confirmText || t('common.confirm'),
     onConfirm: cb,
   }
 }
@@ -56,17 +57,17 @@ async function copyLink(item, withCode = false) {
   try {
     await navigator.clipboard.writeText(link)
   } catch (e) {
-    /* clipboard blocked — link still shown */
+    /* clipboard blocked */
   }
   toast(`[<] Link copied: …/${item.share_code}${withCode && item.code ? ' [+pwd]' : ''}`)
 }
 
 async function revokeShare(item) {
   showConfirm(
-    `[x] REVOKE SHARE`,
-    `Revoke share link for "${item.file_name || item.share_code}"?\nThe link will stop working immediately.`,
+    t('shares.revokeTitle'),
+    t('shares.revokeMessage', { name: item.file_name || item.share_code }),
     true,
-    'REVOKE',
+    t('shares.revokeBtn'),
     async () => {
       try {
         await shareApi.revoke(item.share_code)
@@ -81,9 +82,9 @@ async function revokeShare(item) {
 function statusBadge(item) {
   if (item.expire_at) {
     const exp = new Date(item.expire_at)
-    if (exp < new Date()) return { text: 'EXPIRED', cls: 'badge-red' }
+    if (exp < new Date()) return { text: t('shares.expired'), cls: 'badge-red' }
   }
-  return { text: 'ACTIVE', cls: 'badge-green' }
+  return { text: t('shares.active'), cls: 'badge-green' }
 }
 
 onMounted(fetchShares)
@@ -92,8 +93,8 @@ onMounted(fetchShares)
 <template>
   <div class="shares-view">
     <div class="view-header">
-      <h2>&lt;&gt; MY SHARES</h2>
-      <span class="count">{{ shares.length }} links</span>
+      <h2>&lt;&gt; {{ t('shares.myShares') }}</h2>
+      <span class="count">{{ t('shares.links', { count: shares.length }) }}</span>
     </div>
 
     <div v-if="!loading && shares.length > 0" class="share-list">
@@ -101,9 +102,9 @@ onMounted(fetchShares)
         <div class="share-info">
           <span class="share-name">{{ item.file_name || 'FILE' }}</span>
           <div class="share-meta">
-            <span class="code">CODE: {{ item.share_code }}</span>
-            <span v-if="item.code" class="pwd">PWD: {{ item.code }}</span>
-            <span class="views">VIEWS: {{ item.view_count || 0 }}</span>
+            <span class="code">{{ t('shares.code') }}: {{ item.share_code }}</span>
+            <span v-if="item.code" class="pwd">{{ t('shares.pwd') }}: {{ item.code }}</span>
+            <span class="views">{{ t('shares.views') }}: {{ item.view_count || 0 }}</span>
           </div>
           <div class="share-date">{{ formatDate(item.created_at) }}</div>
         </div>
@@ -111,21 +112,21 @@ onMounted(fetchShares)
           <span class="badge" :class="statusBadge(item).cls">{{ statusBadge(item).text }}</span>
         </div>
         <div class="share-actions">
-          <button class="btn btn-sm" @click="copyLink(item, false)">[&lt;] COPY</button>
-          <button v-if="item.code" class="btn btn-sm" @click="copyLink(item, true)">[&lt;] COPY+PWD</button>
-          <button class="btn btn-sm btn-danger" @click="revokeShare(item)">[x] REVOKE</button>
+          <button class="btn btn-sm" @click="copyLink(item, false)">[&lt;] {{ t('shares.copyBtn') }}</button>
+          <button v-if="item.code" class="btn btn-sm" @click="copyLink(item, true)">[&lt;] {{ t('shares.copyPwdBtn') }}</button>
+          <button class="btn btn-sm btn-danger" @click="revokeShare(item)">[x] {{ t('shares.revokeBtn') }}</button>
         </div>
       </div>
     </div>
 
     <div v-else-if="loading" class="empty-state">
-      <span class="cursor-blink">_</span> LOADING…
+      <span class="cursor-blink">_</span> {{ t('common.loading') }}
     </div>
 
     <div v-else class="empty-state">
       <span class="icon">&lt;&gt;</span>
-      <span>NO SHARES YET</span>
-      <span style="font-size:var(--fs-xs);color:var(--text-muted)">Share files from the file browser</span>
+      <span>{{ t('shares.noShares') }}</span>
+      <span style="font-size:var(--fs-xs);color:var(--text-muted)">{{ t('shares.shareHint') }}</span>
     </div>
 
     <ConfirmDialog

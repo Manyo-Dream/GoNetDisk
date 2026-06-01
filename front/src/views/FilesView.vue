@@ -2,6 +2,7 @@
 import { ref, onMounted, inject } from 'vue'
 import { fileApi, folderApi, shareApi } from '../api/index.js'
 import { formatSize } from '../utils/format.js'
+import { useI18n } from '../i18n/index.js'
 import Breadcrumb from '../components/Breadcrumb.vue'
 import FileTable from '../components/FileTable.vue'
 import UploadModal from '../components/UploadModal.vue'
@@ -11,6 +12,7 @@ import Modal from '../components/Modal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 
 const toast = inject('toast')
+const { t } = useI18n()
 
 const files = ref([])
 const loading = ref(false)
@@ -38,7 +40,7 @@ function showConfirm(title, message, danger, confirmText, cb) {
     title,
     message,
     danger,
-    confirmText: confirmText || 'CONFIRM',
+    confirmText: confirmText || t('common.confirm'),
     onConfirm: cb,
   }
 }
@@ -93,14 +95,14 @@ function openRename(item) {
   modalTarget.value = item
   modalInput.value = item.file_name
   modalType.value = 'rename'
-  modalTitle.value = item.is_dir ? '[r] RENAME FOLDER' : '[r] RENAME FILE'
+  modalTitle.value = item.is_dir ? t('files.renameFolder') : t('files.renameFile')
 }
 
 function openNewFolder() {
   modalTarget.value = null
   modalInput.value = ''
   modalType.value = 'newfolder'
-  modalTitle.value = '[+] NEW FOLDER'
+  modalTitle.value = t('files.newFolder')
 }
 
 async function confirmModal() {
@@ -132,20 +134,35 @@ async function confirmModal() {
 
 async function handleDownload(item) {
   const url = fileApi.download(item.id)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = item.file_name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
+  try {
+    const token = localStorage.getItem('access_token')
+    const res = await fetch(url, {
+      headers: token ? { Authorization: 'Bearer ' + token } : {},
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || t('error.downloadFailed'))
+    }
+    const blob = await res.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = blobUrl
+    a.download = item.file_name
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(blobUrl)
+  } catch (e) {
+    toast('! ' + e.message)
+  }
 }
 
 async function handleRemove(item) {
   showConfirm(
-    `[x] DELETE: ${item.file_name}`,
-    `This will move "${item.file_name}" to trash.\nYou can restore it from trash later.`,
+    t('files.deleteTitle', { name: item.file_name }),
+    t('files.deleteMessage', { name: item.file_name }),
     true,
-    'DELETE',
+    t('common.delete'),
     async () => {
       try {
         if (item.is_dir) {
@@ -165,10 +182,10 @@ async function handleBatchDelete(selected) {
   if (!selected || selected.length === 0) return
   const names = selected.map(s => s.file_name).join('\n')
   showConfirm(
-    `[x] BATCH DELETE: ${selected.length} files`,
-    `These files will be moved to trash:\n${names}`,
+    t('files.batchDeleteTitle', { count: selected.length }),
+    t('files.batchDeleteMessage', { names }),
     true,
-    'DELETE',
+    t('common.delete'),
     async () => {
       try {
         for (const item of selected) {
@@ -229,7 +246,7 @@ function handleBatchMove(selected) {
   modalTarget.value = { is_dir: false, file_name: `${selected.length} items`, id: null }
   batchMoveItems.value = selected
   modalType.value = 'batchmove'
-  modalTitle.value = `[m] MOVE: ${selected.length} items`
+  modalTitle.value = t('files.batchMoveTitle', { count: selected.length })
   moveParentId.value = 0
   moveBreadcrumb.value = []
   moveFolders.value = []
@@ -239,7 +256,7 @@ function handleBatchMove(selected) {
 function handleMove(item) {
   modalTarget.value = item
   modalType.value = 'move'
-  modalTitle.value = '[m] MOVE: ' + item.file_name
+  modalTitle.value = t('files.moveTitle', { name: item.file_name })
   moveParentId.value = 0
   moveBreadcrumb.value = []
   moveFolders.value = []
@@ -304,11 +321,11 @@ onMounted(fetchFiles)
     <div class="toolbar">
       <Breadcrumb :path-stack="breadcrumb" @nav="navBreadcrumb" />
       <div class="toolbar-actions">
-        <button class="btn btn-sm" @click="openNewFolder">[+] DIR</button>
+        <button class="btn btn-sm" @click="openNewFolder">[+] {{ t('files.newFolder') }}</button>
         <button class="btn btn-sm btn-primary" @click="showUpload = !showUpload">
-          {{ showUpload ? '[-] HIDE' : '[^] UPLOAD' }}
+          {{ showUpload ? '[-] ' + t('files.hideUpload') : '[^] ' + t('files.upload') }}
         </button>
-        <button class="btn btn-sm" @click="showChunkUpload = true">[#] BIGFILE</button>
+        <button class="btn btn-sm" @click="showChunkUpload = true">[#] {{ t('files.bigFile') }}</button>
       </div>
     </div>
 
@@ -348,11 +365,11 @@ onMounted(fetchFiles)
 
     <Teleport to="body">
       <div v-if="fileTableRef?.selectedCount > 0" class="sticky-batch-bar">
-      <span class="count">{{ fileTableRef.selectedCount }} selected</span>
-      <button class="btn btn-sm" @click="handleBatchMove([...fileTableRef.selectedItems])">[m] MOVE</button>
-      <button class="btn btn-sm" @click="handleBatchShare([...fileTableRef.selectedItems])">[<>] SHARE</button>
-      <button class="btn btn-sm" @click="handleBatchDelete([...fileTableRef.selectedItems]); fileTableRef.clearSelection()">[x] DELETE</button>
-      <button class="btn btn-sm" @click="fileTableRef.clearSelection()">[X] CANCEL</button>
+      <span class="count">{{ t('files.batchBar', { count: fileTableRef.selectedCount }) }}</span>
+      <button class="btn btn-sm" @click="handleBatchMove([...fileTableRef.selectedItems])">[m] {{ t('common.move') }}</button>
+      <button class="btn btn-sm" @click="handleBatchShare([...fileTableRef.selectedItems])">[<>] {{ t('common.share') }}</button>
+      <button class="btn btn-sm" @click="handleBatchDelete([...fileTableRef.selectedItems]); fileTableRef.clearSelection()">[x] {{ t('common.delete') }}</button>
+      <button class="btn btn-sm" @click="fileTableRef.clearSelection()">[X] {{ t('files.batchCancel') }}</button>
     </div>
     </Teleport>
 
@@ -363,15 +380,15 @@ onMounted(fetchFiles)
     >
       <div class="modal-form">
         <label>
-          <span>NAME</span>
+          <span>{{ t('common.name') }}</span>
           <input
             v-model="modalInput"
             @keyup.enter="confirmModal"
           />
         </label>
         <div class="modal-actions">
-          <button class="btn btn-sm" @click="modalType = ''">CANCEL</button>
-          <button class="btn btn-sm btn-primary" @click="confirmModal">CONFIRM</button>
+          <button class="btn btn-sm" @click="modalType = ''">{{ t('common.cancel') }}</button>
+          <button class="btn btn-sm btn-primary" @click="confirmModal">{{ t('common.confirm') }}</button>
         </div>
       </div>
     </Modal>
@@ -398,18 +415,18 @@ onMounted(fetchFiles)
           >
             [DIR] {{ f.file_name }}
           </div>
-          <div v-if="moveFolders.length === 0" class="move-empty">(empty)</div>
+          <div v-if="moveFolders.length === 0" class="move-empty">{{ t('common.empty') }}</div>
         </div>
         <div style="margin-top:var(--gap-3);font-size:var(--fs-xs);color:var(--text-dim)">
-          TARGET: {{ moveBreadcrumb.length > 0 ? moveBreadcrumb.map(s=>s.name).join('/') : '~' }}
+          {{ t('files.targetLabel') }} {{ moveBreadcrumb.length > 0 ? moveBreadcrumb.map(s=>s.name).join('/') : '~' }}
         </div>
         <div class="modal-actions">
-          <button class="btn btn-sm" @click="modalType = ''">CANCEL</button>
+          <button class="btn btn-sm" @click="modalType = ''">{{ t('common.cancel') }}</button>
           <button
             class="btn btn-sm btn-primary"
             :disabled="modalTarget && modalTarget.parent_id === moveParentId"
             @click="confirmMove"
-          >MOVE HERE</button>
+          >{{ t('files.moveHere') }}</button>
         </div>
       </div>
     </Modal>

@@ -1,25 +1,27 @@
 <script setup>
 import { isAuthenticated, userApi, clearTokens } from './api/index.js'
-import { ref, onMounted, provide } from 'vue'
+import { ref, onMounted, provide, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from './i18n/index.js'
 import AppLayout from './components/AppLayout.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import Toast from './components/Toast.vue'
 
 const router = useRouter()
 const route = useRoute()
+const { t } = useI18n()
 
 const userInfo = ref(null)
 const toastRef = ref(null)
 provide('userInfo', userInfo)
 provide('toast', (msg) => toastRef.value?.show(msg))
 const loading = ref(true)
-const navItems = [
-  { label: 'FILES',  icon: '[ ]', to: '/files' },
-  { label: 'TRASH',  icon: '[x]', to: '/trash' },
-  { label: 'SHARES', icon: '< >', to: '/shares' },
-  { label: 'CONFIG', icon: '[~]', to: '/settings' },
-]
+const navItems = computed(() => [
+  { label: t('nav.files'),  icon: '[ ]', to: '/files' },
+  { label: t('nav.trash'),  icon: '[x]', to: '/trash' },
+  { label: t('nav.shares'), icon: '< >', to: '/shares' },
+  { label: t('nav.settings'), icon: '[~]', to: '/settings' },
+])
 
 onMounted(async () => {
   if (isAuthenticated()) {
@@ -65,10 +67,10 @@ function onConfirm() {
 
 function handleLogout() {
   showConfirm(
-    '[x] EXIT',
-    'Are you sure you want to log out?',
+    t('app.logoutTitle'),
+    t('app.logoutMessage'),
     false,
-    'EXIT',
+    t('common.exit'),
     () => {
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
@@ -81,7 +83,7 @@ function handleLogout() {
 
 <template>
   <div v-if="loading" class="loading-screen">
-    <span class="cursor-blink">_</span> INITIALIZING…
+    <span class="cursor-blink">_</span> {{ t('app.initializing') }}
   </div>
 
   <template v-else-if="isGuestRoute()">

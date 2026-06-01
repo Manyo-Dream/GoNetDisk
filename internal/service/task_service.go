@@ -29,9 +29,20 @@ type TaskService struct {
 	minioClient   *minio.Client
 	jwtManager    *util.JWTManager
 	config        *configs.Config
+	txManager     *repository.TxManager
 }
 
-func NewTaskService(userRepo *repository.UserRepo, fileRepo *repository.FileRepo, taskRepo *repository.TaskRepo, fileService *FileService, folderService *FolderService, minioClient *minio.Client, jwtManager *util.JWTManager, config *configs.Config) *TaskService {
+func NewTaskService(
+	userRepo *repository.UserRepo,
+	fileRepo *repository.FileRepo,
+	taskRepo *repository.TaskRepo,
+	fileService *FileService,
+	folderService *FolderService,
+	minioClient *minio.Client,
+	jwtManager *util.JWTManager,
+	config *configs.Config,
+	txManager *repository.TxManager,
+) *TaskService {
 	return &TaskService{
 		userRepo:      userRepo,
 		fileRepo:      fileRepo,
@@ -41,6 +52,7 @@ func NewTaskService(userRepo *repository.UserRepo, fileRepo *repository.FileRepo
 		minioClient:   minioClient,
 		jwtManager:    jwtManager,
 		config:        config,
+		txManager:     txManager,
 	}
 }
 
@@ -64,47 +76,59 @@ func (ts *TaskService) CreateBatchUploadTask(userID uint64, req api.BatchUploadR
 		totalSize += f.FileSize
 	}
 
-	userInfo, err := ts.userRepo.GetUserByID(userID)
+	var taskID string
+	err := ts.txManager.Transaction(func(tx *gorm.DB) error {
+		txUserRepo := ts.userRepo.WithTx(tx)
+		txTaskRepo := ts.taskRepo.WithTx(tx)
+
+		userInfo, err := txUserRepo.GetUserByID(userID)
+		if err != nil {
+			return err
+		}
+
+		if totalSize > int64(userInfo.TotalSpace-userInfo.UsedSpace) {
+			return fmt.Errorf("剩余空间不足，用户剩余空间: %d MB", int64(userInfo.TotalSpace-userInfo.UsedSpace)/1000)
+		}
+
+		taskID = uuid.New().String()
+
+		task := &model.UploadTask{
+			TaskID:    taskID,
+			UserID:    userID,
+			Status:    model.UploadTaskStatusProcessing,
+			FileCount: len(req.Files),
+			TotalSize: totalSize,
+			ParentID:  req.ParentID,
+		}
+
+		err = txTaskRepo.CreateUploadTask(task)
+		if err != nil {
+			return fmt.Errorf("创建上传任务失败: %s", err)
+		}
+
+		records := make([]*model.UploadFileRecord, 0, len(req.Files))
+		for _, f := range req.Files {
+			records = append(records, &model.UploadFileRecord{
+				TaskID:       taskID,
+				UserID:       userID,
+				FileIndex:    f.Index,
+				FileName:     f.FileName,
+				FileExt:      f.FileExt,
+				FileSize:     f.FileSize,
+				Status:       model.FileStatusWaiting,
+				RelativePath: f.RelativePath,
+				ErrorMsg:     "",
+			})
+		}
+		err = txTaskRepo.BatchCreateFileRecords(records)
+		if err != nil {
+			return fmt.Errorf("批量创建文件记录失败: %s", err)
+		}
+
+		return nil
+	})
 	if err != nil {
-		return nil, util.Internal(fmt.Sprintf("获取用户信息失败: %s", err))
-	}
-
-	if totalSize > int64(userInfo.Total_Space-userInfo.Used_Space) {
-		return nil, util.BadRequest(fmt.Sprintf("剩余空间不足，用户剩余空间: %d MB", int64(userInfo.Total_Space-userInfo.Used_Space)/1000))
-	}
-
-	taskID := uuid.New().String()
-
-	task := &model.UploadTask{
-		TaskID:    taskID,
-		UserID:    userID,
-		Status:    model.UploadTaskStatusProcessing,
-		FileCount: len(req.Files),
-		TotalSize: totalSize,
-		ParentID:  req.ParentID,
-	}
-	err = ts.taskRepo.CreateUploadTask(task)
-	if err != nil {
-		return nil, util.Internal(fmt.Sprintf("创建上传任务失败: %s", err))
-	}
-
-	records := make([]*model.UploadFileRecord, 0, len(req.Files))
-	for _, f := range req.Files {
-		records = append(records, &model.UploadFileRecord{
-			TaskID:       taskID,
-			UserID:       userID,
-			FileIndex:    f.Index,
-			FileName:     f.FileName,
-			FileExt:      f.FileExt,
-			FileSize:     f.FileSize,
-			Status:       model.FileStatusWaiting,
-			RelativePath: f.RelativePath,
-			ErrorMsg:     "",
-		})
-	}
-	err = ts.taskRepo.BatchCreateFileRecords(records)
-	if err != nil {
-		return nil, util.Internal(fmt.Sprintf("批量创建文件记录失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("创建批量上传任务失败: %s", err))
 	}
 
 	return &api.BatchUploadResponse{
@@ -130,6 +154,7 @@ func (ts *TaskService) UploadTaskFile(userID uint64, taskID string, fileIndex in
 		return util.BadRequest("该文件已上传，请勿重复上传")
 	}
 
+	// 创建目录（独立事务内，和上传解耦）
 	targetParentID, err := ts.folderService.FindOrCreateFolder(userID, task.ParentID, record.RelativePath)
 	if err != nil {
 		ts.updateRecordFailed(taskID, fileIndex, "创建文件夹失败: "+err.Error())
@@ -155,64 +180,67 @@ func (ts *TaskService) UploadTaskFile(userID uint64, taskID string, fileIndex in
 		return err
 	}
 
-	respFileName := record.FileName
-	existing, err := ts.fileRepo.GetUserFileByFileName(userID, targetParentID, record.FileName)
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		ts.updateRecordFailed(taskID, fileIndex, "查询文件名冲突失败")
-		return err
-	}
-	if existing != nil {
-		ext := filepath.Ext(record.FileName)
-		name := strings.TrimSuffix(record.FileName, ext)
-		respFileName = fmt.Sprintf("%s_%d%s", name, time.Now().UnixNano(), ext)
-	}
+	// DB 写（独立事务：CreateUserFile + UpdatePath + IncrSpace + UpdateRecord）
+	err = ts.txManager.Transaction(func(tx *gorm.DB) error {
+		txFileRepo := ts.fileRepo.WithTx(tx)
+		txUserRepo := ts.userRepo.WithTx(tx)
+		txTaskRepo := ts.taskRepo.WithTx(tx)
 
-	userFile := &model.UserFile{
-		UserID:     userID,
-		PhysicalID: &physicalID,
-		ParentID:   targetParentID,
-		FileName:   respFileName,
-		FileExt:    fileExt,
-		FileSize:   record.FileSize,
-		IsDir:      false,
-	}
+		respFileName := record.FileName
+		existing, err := txFileRepo.GetUserFileByFileName(userID, targetParentID, record.FileName)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if existing != nil {
+			ext := filepath.Ext(record.FileName)
+			name := strings.TrimSuffix(record.FileName, ext)
+			respFileName = fmt.Sprintf("%s_%d%s", name, time.Now().UnixNano(), ext)
+		}
 
-	err = ts.fileRepo.CreateUserFile(userFile)
-	if err != nil {
-		ts.updateRecordFailed(taskID, fileIndex, "创建用户文件记录失败")
-		return err
-	}
+		userFile := &model.UserFile{
+			UserID:     userID,
+			PhysicalID: &physicalID,
+			ParentID:   targetParentID,
+			FileName:   respFileName,
+			FileExt:    fileExt,
+			FileSize:   record.FileSize,
+			IsDir:      false,
+		}
 
-	pathStack, err := util.BuildPathStack(ts.fileRepo, userID, targetParentID, userFile.ID)
-	if err != nil {
-		ts.updateRecordFailed(taskID, fileIndex, "构建路径栈失败")
-		return err
-	}
+		if err := txFileRepo.CreateUserFile(userFile); err != nil {
+			return err
+		}
 
-	err = ts.fileRepo.UpdateUserFilePath(userFile.ID, pathStack)
-	if err != nil {
-		ts.updateRecordFailed(taskID, fileIndex, "更新路径栈失败")
-		return err
-	}
+		pathStack, err := util.BuildPathStack(txFileRepo, userID, targetParentID, userFile.ID)
+		if err != nil {
+			return err
+		}
 
-	err = ts.userRepo.IncrUserSpace(userID, record.FileSize)
-	if err != nil {
-		ts.updateRecordFailed(taskID, fileIndex, "更新用户空间失败")
-		return err
-	}
+		if err := txFileRepo.UpdateUserFilePath(userFile.ID, pathStack); err != nil {
+			return err
+		}
 
-	err = ts.taskRepo.UpdateFileRecord(taskID, fileIndex, &model.UploadFileRecord{
-		Status:     model.FileStatusSuccess,
-		FileHash:   fileHash,
-		PhysicalID: physicalID,
-		UserFileID: userFile.ID,
+		if err := txUserRepo.IncrUserSpace(userID, record.FileSize); err != nil {
+			return err
+		}
+
+		if err := txTaskRepo.UpdateFileRecord(taskID, fileIndex, &model.UploadFileRecord{
+			Status:     model.FileStatusSuccess,
+			FileHash:   fileHash,
+			PhysicalID: physicalID,
+			UserFileID: userFile.ID,
+		}); err != nil {
+			return err
+		}
+
+		return nil
 	})
 	if err != nil {
-		return util.Internal(fmt.Sprintf("更新文件记录失败: %s", err))
+		ts.updateRecordFailed(taskID, fileIndex, err.Error())
+		return err
 	}
 
 	ts.syncTaskProgress(taskID)
-
 	return nil
 }
 

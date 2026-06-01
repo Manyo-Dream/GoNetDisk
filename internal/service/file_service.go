@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"mime"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -46,9 +47,18 @@ type FileService struct {
 	fileRepo    *repository.FileRepo
 	jwtManger   *util.JWTManager
 	config      *configs.Config
+	txManager   *repository.TxManager
 }
 
-func NewFileService(redis *redis.Client, minioClient *minio.Client, userRepo *repository.UserRepo, fileRepo *repository.FileRepo, jwtManger *util.JWTManager, config *configs.Config) *FileService {
+func NewFileService(
+	redis *redis.Client,
+	minioClient *minio.Client,
+	userRepo *repository.UserRepo,
+	fileRepo *repository.FileRepo,
+	jwtManger *util.JWTManager,
+	config *configs.Config,
+	txManager *repository.TxManager,
+) *FileService {
 	return &FileService{
 		redis:       redis,
 		minioClient: minioClient,
@@ -56,6 +66,7 @@ func NewFileService(redis *redis.Client, minioClient *minio.Client, userRepo *re
 		fileRepo:    fileRepo,
 		jwtManger:   jwtManger,
 		config:      config,
+		txManager:   txManager,
 	}
 }
 
@@ -73,8 +84,8 @@ func (s *FileService) UploadPhyFileAndBindFile(email string, parentID uint64, fi
 		return nil, util.Internal(fmt.Sprintf("查询用户信息失败: %s", err))
 	}
 
-	if userInfo.Total_Space > 0 && userInfo.Used_Space+uint64(validResult.FileSize) > userInfo.Total_Space {
-		return nil, util.Conflict(fmt.Sprintf("空间不足：已用%d，总计%d", userInfo.Used_Space, userInfo.Total_Space))
+	if userInfo.TotalSpace > 0 && userInfo.UsedSpace+uint64(validResult.FileSize) > userInfo.TotalSpace {
+		return nil, util.Conflict(fmt.Sprintf("空间不足：已用%d，总计%d", userInfo.UsedSpace, userInfo.TotalSpace))
 	}
 
 	if parentID != 0 {
@@ -100,10 +111,10 @@ func (s *FileService) UploadPhyFileAndBindFile(email string, parentID uint64, fi
 		return nil, err
 	}
 	if physicalID == 0 {
-		return nil, util.Internal("创建物理文件记录异常: physical_id 为 0，请检查 physical_file 表是否配置了 AUTO_INCREMENT")
+		return nil, util.Internal("创建物理文件记录异常: physical_id 为 0，请检查 physical_file 表自增主键配置")
 	}
 
-	return s.createUserFileRecord(userInfo.ID, parentID, physicalID, validResult)
+	return createUserFileRecord(s.fileRepo, s.userRepo, userInfo.ID, parentID, physicalID, validResult)
 }
 
 // findOrCreatePhysicalFile 计算 hash、查重、上传到 MinIO、创建 PhysicalFile 记录
@@ -147,6 +158,43 @@ func (s *FileService) findOrCreatePhysicalFile(data []byte, fileName string, fil
 
 	// 查询或创建文件
 	return s.createPhysicalFile(data, fileName, fileSize, fileHash, fileExt, cacheKey)
+}
+
+// allowedMimeTypes 上传文件 MIME 白名单
+var allowedMimeTypes = map[string]bool{
+	// 图片
+	"image/jpeg":      true,
+	"image/png":       true,
+	"image/gif":       true,
+	"image/webp":      true,
+	"image/svg+xml":   true,
+	"image/bmp":       true,
+	// 文档
+	"application/pdf": true,
+	"application/msword": true,
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
+	"application/vnd.ms-excel": true,
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": true,
+	"application/vnd.ms-powerpoint": true,
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
+	"text/plain":       true,
+	"text/csv":         true,
+	"text/markdown":    true,
+	// 音视频
+	"audio/mpeg":       true,
+	"audio/wav":        true,
+	"audio/ogg":        true,
+	"video/mp4":        true,
+	"video/webm":       true,
+	// 压缩包
+	"application/zip":  true,
+	"application/x-rar-compressed": true,
+	"application/gzip": true,
+	"application/x-7z-compressed": true,
+	// 代码/数据
+	"application/json": true,
+	"application/xml":  true,
+	"application/javascript": true,
 }
 
 // 辅助方法：尝试从缓存获取
@@ -243,7 +291,7 @@ func (s *FileService) createPhysicalFile(data []byte, fileName string, fileSize 
 	if phyFile.ID == 0 {
 		s.minioClient.RemoveObject(context.Background(), s.config.Minio.Bucket,
 			objectKey, minio.RemoveObjectOptions{})
-		return 0, "", "", util.Internal("创建物理文件记录异常: 数据库表 physical_file 可能缺少 AUTO_INCREMENT，请执行: ALTER TABLE physical_file MODIFY COLUMN id BIGINT UNSIGNED AUTO_INCREMENT")
+		return 0, "", "", util.Internal("创建物理文件记录异常: 数据库表 physical_file 自增主键可能未正确配置")
 	}
 
 	s.redis.Set(context.Background(), cacheKey, strconv.FormatUint(phyFile.ID, 10), time.Hour)
@@ -345,57 +393,79 @@ func (s *FileService) GetTrashList(userID uint64, page, pageSize int) (*api.Tras
 }
 
 func (s *FileService) MoveFileToTrash(userID, userFileID uint64) (*api.TrashDeleteResponse, error) {
-	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
-	if err != nil {
-		return nil, util.Internal(fmt.Sprintf("获取用户文件失败: %s", err))
-	}
-	if userFile.IsDir {
-		return nil, util.Internal("该项是文件夹，请调用文件夹接口")
-	}
+	err := s.txManager.Transaction(func(tx *gorm.DB) error {
+		txFileRepo := s.fileRepo.WithTx(tx)
+		txUserRepo := s.userRepo.WithTx(tx)
 
-	if !userFile.DeletedAt.Valid {
-		err := s.fileRepo.SoftDeleteUserItem(userID, userFileID)
+		userFile, err := txFileRepo.GetUserFileByIDAny(userID, userFileID)
 		if err != nil {
-			return nil, util.Internal(fmt.Sprintf("移入回收站失败: %s", err))
+			return err
 		}
-		err = s.userRepo.DecrUserSpace(userID, userFile.FileSize)
-		if err != nil {
-			return nil, util.Internal(fmt.Sprintf("更新用户空间失败: %s", err))
+		if userFile.IsDir {
+			return errors.New("该项是文件夹，请调用文件夹接口")
 		}
-		return &api.TrashDeleteResponse{Message: "文件成功移入回收站"}, nil
+
+		if userFile.DeletedAt.Valid {
+			return errors.New("文件已在回收站")
+		}
+
+		if err := txFileRepo.SoftDeleteUserItem(userID, userFileID); err != nil {
+			if errors.Is(err, repository.ErrUserFileNotFound) {
+				return util.NotFound("文件不存在")
+			}
+			return err
+		}
+		if err := txUserRepo.DecrUserSpace(userID, userFile.FileSize); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, util.Conflict(err.Error())
 	}
-	return nil, util.Conflict("文件已在回收站")
+	return &api.TrashDeleteResponse{Message: "文件成功移入回收站"}, nil
 }
 
 func (s *FileService) RestoreFile(userID, userFileID uint64) (*api.TrashRestoreResponse, error) {
-	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
-	if err != nil {
-		return nil, util.Internal(err.Error())
-	}
-	if !userFile.DeletedAt.Valid {
-		return nil, util.Conflict("文件不在回收站，无法还原")
-	}
+	err := s.txManager.Transaction(func(tx *gorm.DB) error {
+		txFileRepo := s.fileRepo.WithTx(tx)
+		txUserRepo := s.userRepo.WithTx(tx)
 
-	if util.IsNameExistsInFolder(s.fileRepo, userID, userFile.ParentID, userFile.FileName, userFileID, false) {
-		newName, err := util.GenerateUniqueName(s.fileRepo, userID, userFile.ParentID, userFile.FileName, userFile.FileExt, userFileID, false)
+		userFile, err := txFileRepo.GetUserFileByIDAny(userID, userFileID)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		userFile.FileName = newName
-		err = s.fileRepo.UpdateUserFile(userFile)
+		if !userFile.DeletedAt.Valid {
+			return errors.New("文件不在回收站，无法还原")
+		}
+
+		if util.IsNameExistsInFolder(txFileRepo, userID, userFile.ParentID, userFile.FileName, userFileID, false) {
+			newName, err := util.GenerateUniqueName(txFileRepo, userID, userFile.ParentID, userFile.FileName, userFile.FileExt, userFileID, false)
+			if err != nil {
+				return err
+			}
+			userFile.FileName = newName
+			err = txFileRepo.UpdateUserFile(userFile)
+			if err != nil {
+				return err
+			}
+		}
+
+		err = txFileRepo.RestoreUserFile(userID, userFileID)
 		if err != nil {
-			return nil, util.Internal(fmt.Sprintf("更新用户文件失败: %s", err))
+			return err
 		}
-	}
 
-	err = s.fileRepo.RestoreUserFile(userID, userFileID)
-	if err != nil {
-		return nil, util.Internal(fmt.Sprintf("还原用户文件失败: %s", err))
-	}
+		err = txUserRepo.IncrUserSpace(userID, userFile.FileSize)
+		if err != nil {
+			return err
+		}
 
-	err = s.userRepo.IncrUserSpace(userID, userFile.FileSize)
+		return nil
+	})
 	if err != nil {
-		return nil, util.Internal(fmt.Sprintf("更新用户空间失败: %s", err))
+		return nil, util.Internal(fmt.Sprintf("文件还原失败: %s", err))
 	}
 
 	return &api.TrashRestoreResponse{Message: "文件成功还原"}, nil
@@ -507,59 +577,78 @@ func (s *FileService) MoveFile(userID, userFileID, targetParentID uint64) (*api.
 }
 
 func (s *FileService) RemoveFile(userID, userFileID uint64) (*api.TrashDeleteResponse, error) {
-	userFile, err := s.fileRepo.GetUserFileByIDAny(userID, userFileID)
-	if err != nil {
-		return nil, util.NotFound(fmt.Sprintf("文件不存在: %s", err))
-	}
-	if userFile.IsDir {
-		return nil, util.BadRequest("该项是文件夹，请调用文件夹接口")
-	}
+	var needCleanMinio bool
+	var filePath, fileHash string
 
-	physicalID := userFile.PhysicalID
+	err := s.txManager.Transaction(func(tx *gorm.DB) error {
+		txFileRepo := s.fileRepo.WithTx(tx)
+		txUserRepo := s.userRepo.WithTx(tx)
 
-	err = s.fileRepo.HardDeleteUserFile(userID, userFileID)
-	if err != nil {
-		return nil, util.Internal(fmt.Sprintf("删除文件记录失败: %s", err))
-	}
-
-	if physicalID != nil {
-		phyFile, err := s.fileRepo.GetPhyFileByID(*physicalID)
+		userFile, err := txFileRepo.GetUserFileByIDAny(userID, userFileID)
 		if err != nil {
-			return nil, util.Internal(fmt.Sprintf("获取物理文件失败: %s", err))
+			return fmt.Errorf("文件不存在: %s", err)
+		}
+		if userFile.IsDir {
+			return fmt.Errorf("该项是文件夹，请调用文件夹接口")
 		}
 
-		if phyFile.RefCount <= 1 {
-			err = s.minioClient.RemoveObject(
-				context.Background(),
-				s.config.Minio.Bucket,
-				phyFile.FilePath,
-				minio.RemoveObjectOptions{},
-			)
+		physicalID := userFile.PhysicalID
+
+		err = txFileRepo.HardDeleteUserFile(userID, userFileID)
+		if err != nil {
+			return fmt.Errorf("删除文件记录失败: %s", err)
+		}
+
+		if physicalID != nil {
+			phyFile, err := txFileRepo.GetPhyFileByID(*physicalID)
 			if err != nil {
-				return nil, util.Internal(fmt.Sprintf("从 MinIO 删除文件失败: %s", err))
+				return fmt.Errorf("获取物理文件失败: %s", err)
 			}
 
-			_, err := s.redis.Del(context.Background(), "hash:"+phyFile.FileHash).Result()
-			if err != nil {
-				return nil, util.Internal(fmt.Sprintf("从 Redis 删除缓存失败: %s", err))
-			}
+			if phyFile.RefCount <= 1 {
+				needCleanMinio = true
+				filePath = phyFile.FilePath
+				fileHash = phyFile.FileHash
 
-			err = s.fileRepo.DeletePhysicalFile(phyFile.ID)
-			if err != nil {
-				return nil, util.Internal(fmt.Sprintf("删除物理文件记录失败: %s", err))
-			}
-		} else {
-			err = s.fileRepo.DecrPhyFileRefCount(phyFile.ID, 1)
-			if err != nil {
-				return nil, util.Internal(fmt.Sprintf("更新物理文件引用数失败: %s", err))
+				err = txFileRepo.DeletePhysicalFile(phyFile.ID)
+				if err != nil {
+					return fmt.Errorf("删除物理文件记录失败: %s", err)
+				}
+			} else {
+				err = txFileRepo.DecrPhyFileRefCount(phyFile.ID, 1)
+				if err != nil {
+					return fmt.Errorf("更新物理文件引用数失败: %s", err)
+				}
 			}
 		}
+
+		if !userFile.DeletedAt.Valid {
+			err = txUserRepo.DecrUserSpace(userID, userFile.FileSize)
+			if err != nil {
+				return fmt.Errorf("更新用户空间失败: %s", err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, util.Internal(fmt.Sprintf("移除文件失败: %s", err))
 	}
 
-	if !userFile.DeletedAt.Valid {
-		err = s.userRepo.DecrUserSpace(userID, userFile.FileSize)
+	if needCleanMinio {
+		err = s.minioClient.RemoveObject(
+			context.Background(),
+			s.config.Minio.Bucket,
+			filePath,
+			minio.RemoveObjectOptions{},
+		)
 		if err != nil {
-			return nil, util.Internal(fmt.Sprintf("更新用户空间失败: %s", err))
+			return nil, util.Internal(fmt.Sprintf("从 MinIO 删除文件失败: %s", err))
+		}
+
+		_, err := s.redis.Del(context.Background(), "hash:"+fileHash).Result()
+		if err != nil {
+			return nil, util.Internal(fmt.Sprintf("从 Redis 删除缓存失败: %s", err))
 		}
 	}
 
@@ -585,20 +674,34 @@ func (s *FileService) validFile(fileHeader *multipart.FileHeader) (*model.Physic
 		return nil, errors.New("上传文件为空")
 	}
 
+	// MIME 类型白名单校验
+	contentType := fileHeader.Header.Get("Content-Type")
+	if contentType == "" {
+		// 从扩展名推断
+		ext := filepath.Ext(fileName)
+		contentType = mime.TypeByExtension(ext)
+	}
+	if contentType != "" && !allowedMimeTypes[contentType] {
+		// 对于空 Content-Type 且无法推断的，放行（信任扩展名校验）
+		return nil, fmt.Errorf("不支持的文件类型: %s", contentType)
+	}
+
+
 	return &model.PhysicalFile{
 		FileName: fileName,
 		FileSize: fileSize,
 	}, nil
 }
 
-func (s *FileService) createUserFileRecord(
-	userID,
-	parentID,
-	physicalID uint64,
+func createUserFileRecord(
+	fileRepo *repository.FileRepo,
+	userRepo *repository.UserRepo,
+	userID, parentID, physicalID uint64,
 	validResult *model.PhysicalFile,
 ) (*api.FileUploadResponse, error) {
 	respFileName := validResult.FileName
-	existing, err := s.fileRepo.GetUserFileByFileName(userID, parentID, validResult.FileName)
+
+	existing, err := fileRepo.GetUserFileByFileName(userID, parentID, validResult.FileName)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, util.Internal(fmt.Sprintf("查询用户文件记录失败: %s", err))
 	}
@@ -620,22 +723,22 @@ func (s *FileService) createUserFileRecord(
 		IsDir:      false,
 	}
 
-	err = s.fileRepo.CreateUserFile(userFile)
+	err = fileRepo.CreateUserFile(userFile)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("创建用户文件记录失败: %s", err))
 	}
 
-	pathStack, err := util.BuildPathStack(s.fileRepo, userID, parentID, userFile.ID)
+	pathStack, err := util.BuildPathStack(fileRepo, userID, parentID, userFile.ID)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("构建路径栈失败: %s", err))
 	}
 
-	err = s.fileRepo.UpdateUserFilePath(userFile.ID, pathStack)
+	err = fileRepo.UpdateUserFilePath(userFile.ID, pathStack)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("更新用户文件表失败: %s", err))
 	}
 
-	err = s.userRepo.IncrUserSpace(userID, validResult.FileSize)
+	err = userRepo.IncrUserSpace(userID, validResult.FileSize)
 	if err != nil {
 		return nil, util.Internal(fmt.Sprintf("更新用户已使用空间失败: %s", err))
 	}

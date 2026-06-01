@@ -1,234 +1,233 @@
-const BASE = '/api/v1'
+const BASE = "/api/v1";
 
 function getAccessToken() {
-  return localStorage.getItem('access_token')
+  return localStorage.getItem("access_token");
 }
 function getRefreshToken() {
-  return localStorage.getItem('refresh_token')
+  return localStorage.getItem("refresh_token");
 }
 export function setTokens(access, refresh) {
-  localStorage.setItem('access_token', access)
-  localStorage.setItem('refresh_token', refresh)
+  localStorage.setItem("access_token", access);
+  localStorage.setItem("refresh_token", refresh);
 }
 export function clearTokens() {
-  localStorage.removeItem('access_token')
-  localStorage.removeItem('refresh_token')
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("refresh_token");
 }
 export function isAuthenticated() {
-  return !!getAccessToken()
+  return !!getAccessToken();
 }
 
 async function request(method, path, body = null, multipart = false) {
-  const url = BASE + path
-  const headers = {}
+  const url = BASE + path;
+  const headers = {};
 
-  const token = getAccessToken()
+  const token = getAccessToken();
   if (token) {
-    headers['Authorization'] = 'Bearer ' + token
+    headers["Authorization"] = "Bearer " + token;
   }
 
   if (!multipart && body) {
-    headers['Content-Type'] = 'application/json'
+    headers["Content-Type"] = "application/json";
   }
 
-  const opts = { method, headers }
+  const opts = { method, headers };
   if (body) {
-    opts.body = multipart ? body : JSON.stringify(body)
+    opts.body = multipart ? body : JSON.stringify(body);
   }
 
-  let res = await fetch(url, opts)
+  let res = await fetch(url, opts);
 
   if (res.status === 401 && getRefreshToken()) {
-    const refreshed = await refreshAccessToken()
+    const refreshed = await refreshAccessToken();
     if (refreshed) {
-      headers['Authorization'] = 'Bearer ' + getAccessToken()
-      opts.headers = headers
-      res = await fetch(url, opts)
+      headers["Authorization"] = "Bearer " + getAccessToken();
+      opts.headers = headers;
+      res = await fetch(url, opts);
     } else if (!getAccessToken()) {
-      window.location.hash = '#/login'
-      throw new Error('AUTH_EXPIRED')
+      window.location.hash = "#/login";
+      throw new Error("AUTH_EXPIRED");
     }
   }
 
-  const data = await res.json().catch(() => ({}))
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || data.msg || `HTTP ${res.status}`)
+    throw new Error(data.error || data.msg || `HTTP ${res.status}`);
   }
-  return data.data !== undefined ? data.data : data
+  return data.data !== undefined ? data.data : data;
 }
 
-let _refreshPromise = null
+let _refreshPromise = null;
 
 async function refreshAccessToken() {
-  if (_refreshPromise) return _refreshPromise
-  _refreshPromise = _doRefresh()
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = _doRefresh();
   try {
-    return await _refreshPromise
+    return await _refreshPromise;
   } finally {
-    _refreshPromise = null
+    _refreshPromise = null;
   }
 }
 
 async function _doRefresh() {
-  const currentRefresh = getRefreshToken()
+  const currentRefresh = getRefreshToken();
   if (!currentRefresh) {
-    clearTokens()
-    return false
+    clearTokens();
+    return false;
   }
   try {
-    const res = await fetch(BASE + '/user/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch(BASE + "/user/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: currentRefresh }),
-    })
-    const data = await res.json()
+    });
+    const data = await res.json();
     if (res.ok && data.data && data.data.access_token) {
-      setTokens(data.data.access_token, currentRefresh)
-      return true
+      setTokens(data.data.access_token, currentRefresh);
+      return true;
     }
     if (res.status === 401 || res.status === 403) {
-      clearTokens()
+      clearTokens();
     }
-    return false
+    return false;
   } catch (e) {
-    return false
+    return false;
   }
 }
 
 function getQuery(params = {}) {
-  const qs = new URLSearchParams()
+  const qs = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && v !== '') qs.set(k, v)
-  })
-  const s = qs.toString()
-  return s ? '?' + s : ''
+    if (v !== undefined && v !== null && v !== "") qs.set(k, v);
+  });
+  const s = qs.toString();
+  return s ? "?" + s : "";
 }
 
 // ========== User ==========
 export const userApi = {
   register(body) {
-    return request('POST', '/user/register', body)
+    return request("POST", "/user/register", body);
   },
   login(body) {
-    return request('POST', '/user/login', body)
+    return request("POST", "/user/login", body);
   },
   getInfo() {
-    return request('GET', '/user/info')
+    return request("GET", "/user/info");
   },
   updateInfo(body) {
-    return request('PUT', '/user/info', body)
+    return request("PUT", "/user/info", body);
   },
   getSpace() {
-    return request('GET', '/user/space')
+    return request("GET", "/user/space");
   },
-}
+};
 
 // ========== File ==========
 export const fileApi = {
   upload(formData) {
-    return request('POST', '/file/upload', formData, true)
+    return request("POST", "/files", formData, true);
   },
   download(userfileId) {
-    const token = getAccessToken()
-    return BASE + '/file/download/' + userfileId + '?token=' + encodeURIComponent(token)
+    return BASE + "/files/" + userfileId;
   },
   list(params) {
-    return request('GET', '/file/list' + getQuery(params))
+    return request("GET", "/files" + getQuery(params));
   },
   rename(body) {
-    return request('PUT', '/file/rename', body)
+    return request("PUT", "/files/" + body.user_file_id, body);
   },
   move(body) {
-    return request('PUT', '/file/move', body)
+    return request("PATCH", "/files/" + body.user_file_id, body);
   },
   toTrash(userfileId) {
-    return request('DELETE', '/file/delete/' + userfileId)
+    return request("DELETE", "/files/" + userfileId);
   },
-  remove(userfileId) {
-    return request('DELETE', '/file/remove/' + userfileId)
-  },
-}
+};
 
 // ========== Folder ==========
 export const folderApi = {
   create(body) {
-    return request('POST', '/folder/create', body)
+    return request("POST", "/folders", body);
   },
   rename(body) {
-    return request('PUT', '/folder/rename', body)
+    return request("PUT", "/folders/" + body.user_folder_id, body);
   },
   move(body) {
-    return request('PUT', '/folder/move', body)
+    return request("PATCH", "/folders/" + body.user_folder_id, body);
   },
   toTrash(userfolderId) {
-    return request('DELETE', '/folder/delete/' + userfolderId)
+    return request("DELETE", "/folders/" + userfolderId);
   },
-  remove(userfolderId) {
-    return request('DELETE', '/folder/remove/' + userfolderId)
-  },
-}
+};
 
 // ========== Trash ==========
 export const trashApi = {
   list(params) {
-    return request('GET', '/trash/list' + getQuery(params))
+    return request("GET", "/trash" + getQuery(params));
   },
   restoreFile(userfileId) {
-    return request('POST', '/trash/file/' + userfileId)
+    return request("POST", "/trash/files/" + userfileId + "/restore");
   },
   restoreFolder(userfolderId) {
-    return request('POST', '/trash/folder/' + userfolderId)
+    return request("POST", "/trash/folders/" + userfolderId + "/restore");
   },
-}
+  removeFile(userfileId) {
+    return request("DELETE", "/trash/files/" + userfileId);
+  },
+  removeFolder(userfolderId) {
+    return request("DELETE", "/trash/folders/" + userfolderId);
+  },
+};
 
 // ========== Chunk Upload ==========
 export const chunkApi = {
   init(body) {
-    return request('POST', '/file/chunk/init', body)
+    return request("POST", "/files/chunks", body);
   },
   upload(formData) {
-    return request('POST', '/file/chunk/upload', formData, true)
+    return request("PUT", "/files/chunks", formData, true);
   },
   complete(body) {
-    return request('POST', '/file/chunk/complete', body)
+    return request("POST", "/files/chunks/complete", body);
   },
   status(uploadId) {
-    return request('GET', '/file/chunk/status?upload_id=' + uploadId)
+    return request("GET", "/files/chunks/status?upload_id=" + uploadId);
   },
-}
+};
 
 // ========== Share ==========
 export const shareApi = {
   create(body) {
-    return request('POST', '/share/create', body)
+    return request("POST", "/shares", body);
   },
   list(params) {
-    return request('GET', '/share/list' + getQuery(params))
+    return request("GET", "/shares" + getQuery(params));
   },
   revoke(shareCode) {
-    return request('DELETE', '/share/' + shareCode)
+    return request("DELETE", "/shares/" + shareCode);
   },
   getInfo(shareCode, extractionCode) {
-    const params = new URLSearchParams()
-    if (extractionCode) params.set('code', extractionCode)
-    return request('GET', '/share/' + shareCode + '/info?' + params.toString())
+    const params = new URLSearchParams();
+    if (extractionCode) params.set("code", extractionCode);
+    return request("GET", "/shares/" + shareCode + "?" + params.toString());
   },
   download(shareCode, extractionCode) {
-    const params = new URLSearchParams()
-    if (extractionCode) params.set('code', extractionCode)
-    return BASE + '/share/' + shareCode + '/download?' + params.toString()
+    const params = new URLSearchParams();
+    if (extractionCode) params.set("code", extractionCode);
+    return BASE + "/shares/" + shareCode + "/download?" + params.toString();
   },
-}
+};
 
 // ========== Task ==========
 export const taskApi = {
   create(body) {
-    return request('POST', '/task/create', body)
+    return request("POST", "/tasks", body);
   },
   upload(taskId, fileIndex, formData) {
-    return request('POST', '/task/' + taskId + '/file', formData, true)
+    return request("POST", "/tasks/" + taskId + "/files", formData, true);
   },
   progress(taskId) {
-    return request('GET', '/task/' + taskId + '/progress')
+    return request("GET", "/tasks/" + taskId);
   },
-}
+};
